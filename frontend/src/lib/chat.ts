@@ -29,7 +29,7 @@ export type ChatMessage = {
 export async function getActiveTeammates() {
   const { data, error } = await supabase
     .from("internal_profiles")
-    .select("id,email,display_name,role,is_active,created_at,updated_at")
+    .select("id,email,display_name,avatar_url,role,is_active,created_at,updated_at")
     .eq("is_active", true)
     .order("display_name", { ascending: true });
 

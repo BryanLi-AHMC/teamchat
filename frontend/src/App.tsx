@@ -85,6 +85,9 @@ function NewGroupModal({ users, isSubmitting, onCancel, onCreate }: NewGroupModa
                   checked={selectedUserIds.includes(user.id)}
                   onChange={() => toggleMember(user.id)}
                 />
+                <span className="avatar avatar-sm" aria-hidden="true">
+                  {getInitials(user.display_name)}
+                </span>
                 <span>{user.display_name}</span>
               </label>
             ))}
@@ -106,6 +109,23 @@ function NewGroupModal({ users, isSubmitting, onCancel, onCreate }: NewGroupModa
       </div>
     </div>
   );
+}
+
+function getInitials(displayName: string) {
+  const words = displayName
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (words.length === 0) {
+    return "?";
+  }
+
+  if (words.length === 1) {
+    return words[0].slice(0, 2).toUpperCase();
+  }
+
+  return `${words[0][0]}${words[words.length - 1][0]}`.toUpperCase();
 }
 
 function MainLayout() {
@@ -302,6 +322,14 @@ function MainLayout() {
     return groupConversations.filter((group) => (group.title ?? "Untitled group").toLowerCase().includes(query));
   }, [groupConversations, searchText]);
 
+  // TODO: replace initials avatar with uploaded avatar_url or selected preset avatar.
+  const getAvatarLabel = (profile: InternalProfile | undefined) => {
+    if (!profile) {
+      return "?";
+    }
+    return getInitials(profile.display_name);
+  };
+
   const activeConversationTitle = useMemo(() => {
     if (!activeConversation) {
       return "Select a conversation";
@@ -474,7 +502,12 @@ function MainLayout() {
                     className={`sidebar-item ${activeConversation?.id === dmConversationByUserId[user.id] ? "sidebar-item-active" : ""}`}
                     onClick={() => void openDmConversation(user.id)}
                   >
-                    <span>{user.display_name}</span>
+                    <span className="sidebar-item-main">
+                      <span className="avatar avatar-sm" aria-hidden="true">
+                        {getAvatarLabel(user)}
+                      </span>
+                      <span className="sidebar-item-name">{user.display_name}</span>
+                    </span>
                     {(unreadByConversationId[dmConversationByUserId[user.id]] ?? 0) > 0 ? (
                       <span className="unread-badge">{unreadByConversationId[dmConversationByUserId[user.id]]}</span>
                     ) : null}
@@ -499,7 +532,12 @@ function MainLayout() {
                     className={`sidebar-item ${activeConversation?.id === group.id ? "sidebar-item-active" : ""}`}
                     onClick={() => void openGroupConversation(group)}
                   >
-                    <span>{group.title || "Untitled group"}</span>
+                    <span className="sidebar-item-main">
+                      <span className="avatar avatar-sm avatar-group" aria-hidden="true">
+                        {(group.title || "Group").slice(0, 1).toUpperCase()}
+                      </span>
+                      <span className="sidebar-item-name">{group.title || "Untitled group"}</span>
+                    </span>
                     {(unreadByConversationId[group.id] ?? 0) > 0 ? (
                       <span className="unread-badge">{unreadByConversationId[group.id]}</span>
                     ) : null}
@@ -518,12 +556,24 @@ function MainLayout() {
 
         <div className="message-list">
           {messages.map((message) => (
-            <article key={message.id} className="message-item">
-              <div className="message-meta">
-                <strong>{profileById.get(message.sender_id)?.display_name ?? "Unknown sender"}</strong>
-                <span>{new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+            <article
+              key={message.id}
+              className={`message-row ${message.sender_id === currentProfile?.id ? "message-row-own" : "message-row-other"}`}
+            >
+              <span className="avatar avatar-md message-avatar" aria-hidden="true">
+                {getAvatarLabel(profileById.get(message.sender_id))}
+              </span>
+              <div className="message-content">
+                {message.sender_id === currentProfile?.id ? null : (
+                  <strong className="message-sender">
+                    {profileById.get(message.sender_id)?.display_name ?? "Unknown user"}
+                  </strong>
+                )}
+                <p className="message-body">{message.body}</p>
+                <span className="message-time">
+                  {new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </span>
               </div>
-              <p className="message-body">{message.body}</p>
             </article>
           ))}
           {messages.length === 0 ? (

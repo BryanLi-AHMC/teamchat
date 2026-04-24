@@ -4,6 +4,7 @@ export type InternalProfile = {
   id: string;
   email: string;
   display_name: string;
+  avatar_url?: string | null;
   role: string;
   is_active: boolean;
   created_at: string;
@@ -28,7 +29,7 @@ export async function getCurrentInternalProfile(): Promise<InternalProfile | nul
 
   const { data, error } = await supabase
     .from("internal_profiles")
-    .select("id,email,display_name,role,is_active,created_at,updated_at")
+    .select("id,email,display_name,avatar_url,role,is_active,created_at,updated_at")
     .eq("id", session.user.id)
     .maybeSingle();
 
