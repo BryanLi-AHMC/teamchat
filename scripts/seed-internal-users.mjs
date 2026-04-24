@@ -43,12 +43,6 @@ const internalUsers = [
     role: "internal",
   },
   {
-    email: "it_michael@portal.local",
-    password: "It123!",
-    displayName: "Michael Ly",
-    role: "it",
-  },
-  {
     email: "it_mona@portal.local",
     password: "It123!",
     displayName: "Mona Weng",

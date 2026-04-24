@@ -10,7 +10,7 @@ type Message = {
 const messages: Message[] = [
   {
     id: "msg-1",
-    senderName: "Dr. Li",
+    senderName: "System",
     body: "Morning check-in complete. Reviewing team priorities.",
     createdAt: new Date().toISOString(),
   },

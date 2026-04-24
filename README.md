@@ -60,3 +60,5 @@ VITE_API_BASE_URL=http://localhost:3003/api
 ## Notes
 - Do not commit `.env` files or real Supabase keys.
 - Supabase client bootstrap is prepared in backend for next integration step.
+- If `it_michael@portal.local` already exists, remove it manually in Supabase Auth (Authentication -> Users) and run:
+  `delete from public.internal_profiles where email = 'it_michael@portal.local';`

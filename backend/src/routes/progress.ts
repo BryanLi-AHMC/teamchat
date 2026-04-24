@@ -11,7 +11,7 @@ type ProgressUpdate = {
 const progressUpdates: ProgressUpdate[] = [
   {
     id: "prog-1",
-    person: "Nurse Kim",
+    person: "System",
     completed: "Uploaded intake QA checklist",
     workingOn: "Preparing morning handoff template",
     blockers: "Waiting on policy clarification",
