@@ -1,11 +1,11 @@
 import cors from "cors";
 import express from "express";
 
-import { env } from "./config/env.js";
-import { groupsRouter } from "./routes/groups.js";
-import { healthRouter } from "./routes/health.js";
-import { messagesRouter } from "./routes/messages.js";
-import { progressRouter } from "./routes/progress.js";
+import { env } from "./config/env";
+import { groupsRouter } from "./routes/groups";
+import { healthRouter } from "./routes/health";
+import { messagesRouter } from "./routes/messages";
+import { progressRouter } from "./routes/progress";
 
 const app = express();
 

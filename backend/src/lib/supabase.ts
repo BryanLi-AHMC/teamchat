@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 
-import { env } from "../config/env.js";
+import { env } from "../config/env";
 
 const hasSupabaseConfig = Boolean(env.supabaseUrl && env.supabaseServiceRoleKey);
 
