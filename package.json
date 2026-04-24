@@ -5,7 +5,12 @@
     "dev": "concurrently \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
     "dev:backend": "npm run dev --prefix backend",
     "dev:frontend": "npm run dev --prefix frontend",
-    "install:all": "npm install --prefix backend && npm install --prefix frontend"
+    "install:all": "npm install --prefix backend && npm install --prefix frontend",
+    "seed:internal-users": "node scripts/seed-internal-users.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.104.1",
+    "dotenv": "^17.4.2"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

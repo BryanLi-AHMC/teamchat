@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, MouseEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { getCurrentInternalProfile, type InternalProfile } from "./lib/authProfile";
@@ -7,6 +7,7 @@ import {
   getActiveTeammates,
   getConversationById,
   getConversationMembers,
+  getDmConversationMapForUser,
   getGroupConversationsForUser,
   getMessages,
   getOrCreateDmConversation,
@@ -108,19 +109,25 @@ function NewGroupModal({ users, isSubmitting, onCancel, onCreate }: NewGroupModa
 }
 
 function MainLayout() {
+  const EMOJIS = ["😀", "😄", "😂", "👍", "🙏", "❤️", "🎉", "✅", "👀", "😭", "😅", "🔥", "💪", "👏", "🚀"];
   const [currentProfile, setCurrentProfile] = useState<InternalProfile | null>(null);
   const [activeUsers, setActiveUsers] = useState<InternalProfile[]>([]);
   const [groupConversations, setGroupConversations] = useState<ConversationSummary[]>([]);
+  const [dmConversationByUserId, setDmConversationByUserId] = useState<Record<string, string>>({});
+  const [unreadByConversationId, setUnreadByConversationId] = useState<Record<string, number>>({});
   const [activeConversation, setActiveConversation] = useState<ConversationSummary | null>(null);
   const [activeConversationMembers, setActiveConversationMembers] = useState<ConversationMember[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [composerText, setComposerText] = useState("");
+  const [showEmojiMenu, setShowEmojiMenu] = useState(false);
   const [searchText, setSearchText] = useState("");
   const [chatError, setChatError] = useState("");
   const [isInitializing, setIsInitializing] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const emojiMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -132,9 +139,10 @@ function MainLayout() {
           return;
         }
 
-        const [teammates, groups] = await Promise.all([
+        const [teammates, groups, dmConversationMap] = await Promise.all([
           getActiveTeammates(),
           getGroupConversationsForUser(profile.id),
+          getDmConversationMapForUser(profile.id),
         ]);
 
         if (!isMounted) {
@@ -144,6 +152,7 @@ function MainLayout() {
         setCurrentProfile(profile);
         setActiveUsers(teammates.filter((user) => user.id !== profile.id));
         setGroupConversations(groups);
+        setDmConversationByUserId(dmConversationMap);
         setChatError("");
       } catch (error) {
         console.error("Unable to initialize chat", error);
@@ -200,28 +209,63 @@ function MainLayout() {
   }, [activeConversation?.id]);
 
   useEffect(() => {
-    if (!activeConversation?.id) {
+    if (!currentProfile?.id) {
       return;
     }
 
     const channel = supabase
-      .channel(`messages:${activeConversation.id}`)
+      .channel(`messages:for-user:${currentProfile.id}`)
       .on(
         "postgres_changes",
         {
           event: "INSERT",
           schema: "public",
           table: "messages",
-          filter: `conversation_id=eq.${activeConversation.id}`,
         },
         (payload) => {
           const message = payload.new as ChatMessage;
-          setMessages((existing) => {
-            if (existing.some((item) => item.id === message.id)) {
-              return existing;
-            }
-            return [...existing, message];
-          });
+          const isOpenConversation = message.conversation_id === activeConversation?.id;
+
+          if (isOpenConversation) {
+            setMessages((existing) => {
+              if (existing.some((item) => item.id === message.id)) {
+                return existing;
+              }
+              return [...existing, message];
+            });
+          } else if (message.sender_id !== currentProfile.id) {
+            setUnreadByConversationId((existing) => ({
+              ...existing,
+              [message.conversation_id]: (existing[message.conversation_id] ?? 0) + 1,
+            }));
+          }
+
+          const knownDmConversationId = dmConversationByUserId[message.sender_id];
+          if (!knownDmConversationId && message.sender_id !== currentProfile.id) {
+            void getConversationById(message.conversation_id)
+              .then((conversation) => {
+                if (conversation.type !== "dm") {
+                  return;
+                }
+                return getConversationMembers(message.conversation_id);
+              })
+              .then((members) => {
+                if (!members) {
+                  return;
+                }
+                const otherMember = members.find((member) => member.user_id !== currentProfile.id);
+                if (!otherMember) {
+                  return;
+                }
+                setDmConversationByUserId((existing) => ({
+                  ...existing,
+                  [otherMember.user_id]: message.conversation_id,
+                }));
+              })
+              .catch(() => {
+                // Non-blocking: unread logic still works by conversation id.
+              });
+          }
         }
       )
       .subscribe();
@@ -229,7 +273,7 @@ function MainLayout() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [activeConversation?.id]);
+  }, [activeConversation?.id, currentProfile?.id, dmConversationByUserId]);
 
   const profileById = useMemo(() => {
     const allProfiles = [...activeUsers];
@@ -287,6 +331,8 @@ function MainLayout() {
     try {
       setChatError("");
       const conversationId = await getOrCreateDmConversation(targetUserId);
+      setUnreadByConversationId((existing) => ({ ...existing, [conversationId]: 0 }));
+      setDmConversationByUserId((existing) => ({ ...existing, [targetUserId]: conversationId }));
       setActiveConversation(await getConversationById(conversationId));
       await refreshGroups();
     } catch (error) {
@@ -295,6 +341,7 @@ function MainLayout() {
   };
 
   const openGroupConversation = async (conversation: ConversationSummary) => {
+    setUnreadByConversationId((existing) => ({ ...existing, [conversation.id]: 0 }));
     setActiveConversation(conversation);
     setChatError("");
   };
@@ -309,6 +356,7 @@ function MainLayout() {
       const conversationId = await createGroupConversation(currentProfile.id, title, selectedUserIds);
       await refreshGroups();
       const conversation = await getConversationById(conversationId);
+      setUnreadByConversationId((existing) => ({ ...existing, [conversation.id]: 0 }));
       setActiveConversation(conversation);
       setShowGroupModal(false);
       setChatError("");
@@ -317,7 +365,7 @@ function MainLayout() {
     }
   };
 
-  const handleSend = async (event?: FormEvent<HTMLFormElement> | MouseEvent<HTMLButtonElement>) => {
+  const handleSend = async (event?: FormEvent<HTMLFormElement> | ReactMouseEvent<HTMLButtonElement>) => {
     event?.preventDefault();
 
     console.log("[handleSend]", {
@@ -356,6 +404,45 @@ function MainLayout() {
     }
   };
 
+  const handleSelectEmoji = (emoji: string) => {
+    const textarea = composerRef.current;
+    if (!textarea) {
+      setComposerText((existing) => `${existing}${emoji}`);
+      setShowEmojiMenu(false);
+      return;
+    }
+
+    const start = textarea.selectionStart ?? composerText.length;
+    const end = textarea.selectionEnd ?? composerText.length;
+
+    setComposerText((existing) => `${existing.slice(0, start)}${emoji}${existing.slice(end)}`);
+    setShowEmojiMenu(false);
+
+    requestAnimationFrame(() => {
+      const nextCaret = start + emoji.length;
+      textarea.focus();
+      textarea.setSelectionRange(nextCaret, nextCaret);
+    });
+  };
+
+  useEffect(() => {
+    if (!showEmojiMenu) {
+      return;
+    }
+
+    const handleOutsideClick = (event: globalThis.MouseEvent) => {
+      if (emojiMenuRef.current?.contains(event.target as Node)) {
+        return;
+      }
+      setShowEmojiMenu(false);
+    };
+
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [showEmojiMenu]);
+
+  // TODO: Persist unread counts with server-backed read receipts per user/conversation.
+
   if (isInitializing) {
     return <div className="route-loading">Loading TeamChat...</div>;
   }
@@ -384,10 +471,13 @@ function MainLayout() {
                 <li key={user.id}>
                   <button
                     type="button"
-                    className="sidebar-item"
+                    className={`sidebar-item ${activeConversation?.id === dmConversationByUserId[user.id] ? "sidebar-item-active" : ""}`}
                     onClick={() => void openDmConversation(user.id)}
                   >
-                    {user.display_name}
+                    <span>{user.display_name}</span>
+                    {(unreadByConversationId[dmConversationByUserId[user.id]] ?? 0) > 0 ? (
+                      <span className="unread-badge">{unreadByConversationId[dmConversationByUserId[user.id]]}</span>
+                    ) : null}
                   </button>
                 </li>
               ))}
@@ -406,10 +496,13 @@ function MainLayout() {
                 <li key={group.id}>
                   <button
                     type="button"
-                    className="sidebar-item"
+                    className={`sidebar-item ${activeConversation?.id === group.id ? "sidebar-item-active" : ""}`}
                     onClick={() => void openGroupConversation(group)}
                   >
-                    {group.title || "Untitled group"}
+                    <span>{group.title || "Untitled group"}</span>
+                    {(unreadByConversationId[group.id] ?? 0) > 0 ? (
+                      <span className="unread-badge">{unreadByConversationId[group.id]}</span>
+                    ) : null}
                   </button>
                 </li>
               ))}
@@ -439,13 +532,34 @@ function MainLayout() {
         </div>
 
         <footer className="chat-input-bar">
+          <div className="composer-wrapper">
+            {showEmojiMenu ? (
+              <div className="emoji-menu" ref={emojiMenuRef}>
+                {EMOJIS.map((emoji) => (
+                  <button key={emoji} type="button" className="emoji-menu-item" onClick={() => handleSelectEmoji(emoji)}>
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           <textarea
+            ref={composerRef}
             placeholder="Type a message..."
             value={composerText}
             onChange={(event) => setComposerText(event.target.value)}
             onKeyDown={handleComposerKeyDown}
             disabled={!activeConversation}
           />
+          </div>
+          <button
+            type="button"
+            className="emoji-toggle"
+            onClick={() => setShowEmojiMenu((existing) => !existing)}
+            disabled={!activeConversation}
+            aria-label="Open emoji picker"
+          >
+            🙂
+          </button>
           <button
             type="button"
             onClick={handleSend}

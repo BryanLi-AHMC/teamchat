@@ -57,6 +57,40 @@ export async function getGroupConversationsForUser(userId: string) {
     .filter((conversation): conversation is ConversationSummary => Boolean(conversation));
 }
 
+export async function getDmConversationMapForUser(userId: string) {
+  const { data: memberRows, error: memberError } = await supabase
+    .from("conversation_members")
+    .select("conversation_id,conversation:conversations!inner(id,type)")
+    .eq("user_id", userId)
+    .eq("conversation.type", "dm");
+
+  if (memberError) {
+    throw new Error(memberError.message);
+  }
+
+  const dmConversationIds = (memberRows ?? []).map((row) => row.conversation_id);
+  if (dmConversationIds.length === 0) {
+    return {} as Record<string, string>;
+  }
+
+  const { data: participantRows, error: participantError } = await supabase
+    .from("conversation_members")
+    .select("conversation_id,user_id")
+    .in("conversation_id", dmConversationIds)
+    .neq("user_id", userId);
+
+  if (participantError) {
+    throw new Error(participantError.message);
+  }
+
+  const partnerToConversation: Record<string, string> = {};
+  for (const row of participantRows ?? []) {
+    partnerToConversation[row.user_id] = row.conversation_id;
+  }
+
+  return partnerToConversation;
+}
+
 export async function getOrCreateDmConversation(targetUserId: string) {
   const { data, error } = await supabase.rpc("get_or_create_dm", {
     target_user_id: targetUserId,
