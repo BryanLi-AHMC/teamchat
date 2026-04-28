@@ -62,17 +62,17 @@ async function resolveProfileFromRequest(req: Request, res: Response, next: () =
       return;
     }
 
-    const normalizedEmail = authEmail.toLowerCase();
+    const normalizedEmail = authEmail.trim().toLowerCase();
     console.log("[auth/profile] email normalization", {
       authEmail,
       normalizedEmail,
     });
 
-    const { data: profile, error: profileLookupError } = await supabaseAdmin
+    const { data: profiles, error: profileLookupError } = await supabaseAdmin
       .from("internal_profiles")
       .select("id,email,display_name,role,is_active")
       .ilike("email", normalizedEmail)
-      .maybeSingle();
+      .limit(25);
 
     if (profileLookupError) {
       const reason = "stale_portal_check_failed";
@@ -90,10 +90,17 @@ async function resolveProfileFromRequest(req: Request, res: Response, next: () =
       return;
     }
 
+    const profileMatches = (profiles ?? []).filter((candidate) => {
+      const candidateEmail = typeof candidate.email === "string" ? candidate.email.trim().toLowerCase() : "";
+      return candidateEmail === normalizedEmail;
+    });
+    const profile = profileMatches[0];
+
     console.log("[auth/profile] profile lookup result", {
       authEmail,
       normalizedEmail,
       found: Boolean(profile),
+      candidateCount: profileMatches.length,
       profileId: profile?.id ?? null,
       is_active: profile?.is_active ?? null,
       role: profile?.role ?? null,
