@@ -10,6 +10,10 @@ export type InternalProfile = {
   pet_id?: string | null;
   role: string;
   is_active: boolean;
+  xp_total?: number;
+  points?: number;
+  level?: number;
+  streak?: number;
 };
 
 const unauthorizedMessage = "Your account is not authorized for this portal.";

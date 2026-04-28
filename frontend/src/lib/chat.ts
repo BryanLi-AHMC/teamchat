@@ -41,7 +41,7 @@ export type OutgoingAttachment = {
 export async function getActiveTeammates() {
   const { data, error } = await supabase
     .from("internal_profiles")
-    .select("id,email,display_name,role,is_active")
+    .select("id,email,display_name,role,is_active,xp_total,points,level,streak")
     .eq("is_active", true)
     .order("display_name", { ascending: true });
 

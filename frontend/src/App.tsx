@@ -32,6 +32,7 @@ import {
 } from "./lib/chat";
 import { createMyUpdate, deleteMyUpdate, fetchUpdatesForUser, type UserUpdate } from "./lib/updates";
 import { createTypingChannel, subscribeToTeamPresence } from "./lib/presence";
+import { awardMyUpdateXp, type UserStats } from "./lib/profileStats";
 import { disconnectSocketClient, getSocketClient } from "./lib/socket";
 import { supabase } from "./lib/supabase";
 import Login from "./pages/Login";
@@ -43,7 +44,6 @@ import { CurrentUserPlayerCard } from "./components/CurrentUserPlayerCard";
 import { PET_OPTIONS, isValidPetId } from "./constants/pets";
 import { getThemeCssVars, readStoredThemeId, TEAMCHAT_SELECTED_THEME_STORAGE_KEY } from "./utils/theme";
 import { getAssignedPetIdForUser, resolvePetIdForProfile } from "./utils/petAssignment";
-import { getDailyUpdateStreak, readStoredUserTotalXp, tryAwardDailyUpdateXp } from "./utils/userXp";
 import "./App.css";
 
 const SELECTED_PET_STORAGE_KEY = "teamchat:selectedPetId";
@@ -389,6 +389,16 @@ function formatUnreadCount(count: number) {
   return count > 99 ? "99+" : `${count}`;
 }
 
+function toUserStats(profile: InternalProfile): UserStats {
+  return {
+    userId: profile.id,
+    xp: Math.max(0, Number(profile.xp_total ?? 0)),
+    points: Math.max(0, Number(profile.points ?? profile.xp_total ?? 0)),
+    level: Math.max(1, Number(profile.level ?? 1)),
+    streak: Math.max(0, Number(profile.streak ?? 0)),
+  };
+}
+
 const ATTACHMENT_BUCKET = "teamchat-attachments";
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
@@ -409,6 +419,7 @@ function MainLayout() {
   const EMOJIS = ["😀", "😄", "😂", "👍", "🙏", "❤️", "🎉", "✅", "👀", "😭", "😅", "🔥", "💪", "👏", "🚀"];
   const [currentProfile, setCurrentProfile] = useState<InternalProfile | null>(null);
   const [activeUsers, setActiveUsers] = useState<InternalProfile[]>([]);
+  const [memberStatsByUserId, setMemberStatsByUserId] = useState<Record<string, UserStats>>({});
   const [groupConversations, setGroupConversations] = useState<ConversationSummary[]>([]);
   const [dmConversationByUserId, setDmConversationByUserId] = useState<Record<string, string>>({});
   const [unreadByConversationId, setUnreadByConversationId] = useState<Record<string, number>>({});
@@ -441,7 +452,6 @@ function MainLayout() {
   const [timelineError, setTimelineError] = useState("");
   const [timelineLoading, setTimelineLoading] = useState(true);
   const [isPostingUpdate, setIsPostingUpdate] = useState(false);
-  const [currentUserTotalXp, setCurrentUserTotalXp] = useState(0);
   const [levelUpToast, setLevelUpToast] = useState<string | null>(null);
   const [showUpdatesPanel, setShowUpdatesPanel] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -488,13 +498,6 @@ function MainLayout() {
   }, [selectedThemeColor]);
 
   useEffect(() => {
-    if (!currentProfile?.id) {
-      return;
-    }
-    setCurrentUserTotalXp(readStoredUserTotalXp(currentProfile.id));
-  }, [currentProfile?.id]);
-
-  useEffect(() => {
     if (!levelUpToast) {
       return;
     }
@@ -503,6 +506,22 @@ function MainLayout() {
     }, 3800);
     return () => window.clearTimeout(timeoutId);
   }, [levelUpToast]);
+
+  useEffect(() => {
+    const allProfiles = currentProfile ? [currentProfile, ...activeUsers] : activeUsers;
+    if (allProfiles.length === 0) {
+      return;
+    }
+    setMemberStatsByUserId((existing) => {
+      const next = { ...existing };
+      for (const profile of allProfiles) {
+        if (!next[profile.id]) {
+          next[profile.id] = toUserStats(profile);
+        }
+      }
+      return next;
+    });
+  }, [activeUsers, currentProfile]);
 
   useEffect(() => {
     let isMounted = true;
@@ -524,8 +543,17 @@ function MainLayout() {
           return;
         }
 
+        const teammatesWithoutCurrent = teammates.filter((user) => user.id !== profile.id);
         setCurrentProfile(profile);
-        setActiveUsers(teammates.filter((user) => user.id !== profile.id));
+        setActiveUsers(teammatesWithoutCurrent);
+        setMemberStatsByUserId(() => {
+          const next: Record<string, UserStats> = {};
+          next[profile.id] = toUserStats(profile);
+          for (const teammate of teammatesWithoutCurrent) {
+            next[teammate.id] = toUserStats(teammate);
+          }
+          return next;
+        });
         setSelectedUpdatesUserId(profile.id);
         setTimelineLoading(true);
         setGroupConversations(groups);
@@ -845,12 +873,22 @@ function MainLayout() {
       }
       setChatError(errorPayload.message || "Message failed.");
     };
+    const onUserStatsUpdated = (payload: UserStats) => {
+      if (cancelled || !payload?.userId) {
+        return;
+      }
+      setMemberStatsByUserId((existing) => ({
+        ...existing,
+        [payload.userId]: payload,
+      }));
+    };
 
     const bindSocketListeners = (nextSocket: ReturnType<typeof getSocketClient>) => {
       const previousSocket = socketRef.current;
       if (previousSocket && previousSocket !== nextSocket) {
         previousSocket.off("message:new", onMessageNew);
         previousSocket.off("message:error", onMessageError);
+        previousSocket.off("user:stats_updated", onUserStatsUpdated);
       }
       if (!nextSocket) {
         socketRef.current = null;
@@ -858,8 +896,10 @@ function MainLayout() {
       }
       nextSocket.off("message:new", onMessageNew);
       nextSocket.off("message:error", onMessageError);
+      nextSocket.off("user:stats_updated", onUserStatsUpdated);
       nextSocket.on("message:new", onMessageNew);
       nextSocket.on("message:error", onMessageError);
+      nextSocket.on("user:stats_updated", onUserStatsUpdated);
       if (activeConversationIdRef.current) {
         nextSocket.emit("conversation:join", { conversationId: activeConversationIdRef.current });
       }
@@ -900,6 +940,7 @@ function MainLayout() {
         if (existingSocket) {
           existingSocket.off("message:new", onMessageNew);
           existingSocket.off("message:error", onMessageError);
+          existingSocket.off("user:stats_updated", onUserStatsUpdated);
         }
         disconnectSocketClient();
         socketRef.current = null;
@@ -922,6 +963,7 @@ function MainLayout() {
       if (existingSocket) {
         existingSocket.off("message:new", onMessageNew);
         existingSocket.off("message:error", onMessageError);
+        existingSocket.off("user:stats_updated", onUserStatsUpdated);
       }
       disconnectSocketClient();
       socketRef.current = null;
@@ -1017,14 +1059,12 @@ function MainLayout() {
 
   const totalXpByUserId = useMemo(() => {
     const map: Record<string, number> = {};
-    if (currentProfile?.id) {
-      map[currentProfile.id] = currentUserTotalXp;
-    }
-    for (const user of activeUsers) {
-      map[user.id] = readStoredUserTotalXp(user.id);
+    const allProfiles = currentProfile ? [currentProfile, ...activeUsers] : activeUsers;
+    for (const user of allProfiles) {
+      map[user.id] = memberStatsByUserId[user.id]?.xp ?? Math.max(0, Number(user.xp_total ?? 0));
     }
     return map;
-  }, [activeUsers, currentProfile?.id, currentUserTotalXp]);
+  }, [activeUsers, currentProfile, memberStatsByUserId]);
 
   const currentUserRoleLabel = useMemo((): "You" | "Leader" => {
     if (!currentProfile) {
@@ -1037,12 +1077,12 @@ function MainLayout() {
     return "You";
   }, [currentProfile]);
 
-  const myUpdatesCount = currentProfile ? (updatesByUserId[currentProfile.id]?.length ?? 0) : 0;
-
-  const currentUserDayStreak = useMemo(
-    () => (currentProfile ? getDailyUpdateStreak(currentProfile.id) : 0),
-    [currentProfile?.id, myUpdatesCount, currentUserTotalXp]
-  );
+  const currentUserDayStreak = useMemo(() => {
+    if (!currentProfile?.id) {
+      return 0;
+    }
+    return memberStatsByUserId[currentProfile.id]?.streak ?? Math.max(0, Number(currentProfile.streak ?? 0));
+  }, [currentProfile, memberStatsByUserId]);
 
   const selectedUpdates = useMemo(
     () => (selectedUpdatesUserId ? updatesByUserId[selectedUpdatesUserId] ?? [] : []),
@@ -1262,12 +1302,14 @@ function MainLayout() {
           [todayKey]: true,
         },
       }));
-      const xpResult = tryAwardDailyUpdateXp(currentProfile.id);
-      if (xpResult.awarded) {
-        setCurrentUserTotalXp(xpResult.newTotal);
-        if (xpResult.levelAfter > xpResult.levelBefore) {
-          setLevelUpToast(`Level up! You reached Lv. ${xpResult.levelAfter}`);
-        }
+      const previousLevel = memberStatsByUserId[currentProfile.id]?.level ?? Math.max(1, Number(currentProfile.level ?? 1));
+      const nextStats = await awardMyUpdateXp();
+      setMemberStatsByUserId((existing) => ({
+        ...existing,
+        [nextStats.userId]: nextStats,
+      }));
+      if (nextStats.level > previousLevel) {
+        setLevelUpToast(`Level up! You reached Lv. ${nextStats.level}`);
       }
     } catch (error) {
       setTimelineError(error instanceof Error ? error.message : "Unable to post update.");
@@ -1756,7 +1798,7 @@ function MainLayout() {
               displayName={currentProfile.display_name}
               imageUrl={currentProfile.avatar_url}
               selectedPetId={selectedPetId}
-              totalXp={currentUserTotalXp}
+              totalXp={totalXpByUserId[currentProfile.id] ?? 0}
               isOnline
               roleLabel={currentUserRoleLabel}
               dayStreak={currentUserDayStreak}

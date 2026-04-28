@@ -8,6 +8,7 @@ import { authRouter } from "./routes/auth";
 import { groupsRouter } from "./routes/groups";
 import { healthRouter } from "./routes/health";
 import { messagesRouter } from "./routes/messages";
+import { profileStatsRouter } from "./routes/profileStats";
 import { progressRouter } from "./routes/progress";
 import { attachSocketServer } from "./socket";
 
@@ -44,6 +45,7 @@ app.use("/api/health", healthRouter);
 app.use("/api/auth", authRouter);
 app.use("/api/messages", messagesRouter);
 app.use("/api/groups", groupsRouter);
+app.use("/api/profile-stats", profileStatsRouter);
 app.use("/api/progress", progressRouter);
 
 const httpServer = createServer(app);

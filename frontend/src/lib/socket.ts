@@ -16,6 +16,13 @@ type ServerToClientEvents = {
     createdAt: string;
   }) => void;
   "message:error": (payload: { message: string }) => void;
+  "user:stats_updated": (payload: {
+    userId: string;
+    xp: number;
+    points: number;
+    level: number;
+    streak: number;
+  }) => void;
 };
 
 type ClientToServerEvents = {

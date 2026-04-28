@@ -6,6 +6,10 @@ export type CurrentProfile = {
   display_name: string;
   role: string;
   is_active: boolean;
+  xp_total?: number;
+  points?: number;
+  level?: number;
+  streak?: number;
 };
 
 type ResolveParams = {
@@ -32,7 +36,7 @@ export async function resolveCurrentProfile(
 
   const { data, error } = await supabaseAdmin
     .from("internal_profiles")
-    .select("id,email,display_name,role,is_active")
+    .select("id,email,display_name,role,is_active,xp_total,points,level,streak")
     .ilike("email", normalizedEmail)
     .maybeSingle();
 

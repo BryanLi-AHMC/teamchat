@@ -8,6 +8,7 @@ import {
   validateMessageInput,
 } from "./lib/messages";
 import { resolveCurrentProfile } from "./lib/currentProfile";
+import { setSocketServer } from "./lib/realtime";
 import { supabaseAdmin } from "./lib/supabase";
 
 type SocketAuth = {
@@ -158,5 +159,6 @@ export function attachSocketServer(
     });
   });
 
+  setSocketServer(io);
   return io;
 }
