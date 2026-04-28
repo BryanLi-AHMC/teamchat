@@ -13,6 +13,7 @@ export type InternalProfile = {
 };
 
 const unauthorizedMessage = "Your account is not authorized for this portal.";
+let hasLoggedProfileApiUrl = false;
 
 export async function getCurrentInternalProfile(): Promise<InternalProfile | null> {
   const {
@@ -33,7 +34,13 @@ export async function getCurrentInternalProfile(): Promise<InternalProfile | nul
     email: session.user.email ?? null,
   });
 
-  const response = await fetch(`${API_BASE}/api/auth/profile`, {
+  const profileUrl = `${API_BASE}/api/auth/profile`;
+  if (!hasLoggedProfileApiUrl) {
+    console.log("[auth/profile] api_url", profileUrl);
+    hasLoggedProfileApiUrl = true;
+  }
+
+  const response = await fetch(profileUrl, {
     method: "GET",
     headers: {
       Authorization: `Bearer ${session.access_token}`,

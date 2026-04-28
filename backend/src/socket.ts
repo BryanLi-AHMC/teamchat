@@ -77,7 +77,6 @@ export function attachSocketServer(
       }
 
       const currentProfile = await resolveCurrentProfile(supabaseAdmin, {
-        authUserId: data.user.id,
         email: data.user.email,
       });
       if (!currentProfile || !currentProfile.is_active) {

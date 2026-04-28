@@ -25,22 +25,36 @@ async function resolveProfileFromRequest(req: Request, res: Response, next: () =
     const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
 
     if (!token) {
-      res.status(401).json({ error: "Missing bearer token." });
+      console.warn("[auth/profile] forbidden: missing Authorization header");
+      res.status(403).json({ error: "Missing bearer token." });
       return;
     }
 
     const { data, error } = await supabaseAdmin.auth.getUser(token);
     if (error || !data.user) {
-      res.status(401).json({ error: "Invalid auth token." });
+      console.warn("[auth/profile] forbidden: invalid token");
+      res.status(403).json({ error: "Invalid auth token." });
+      return;
+    }
+
+    if (!data.user.email) {
+      console.warn("[auth/profile] forbidden: missing auth email");
+      res.status(403).json({ error: "Missing auth email." });
       return;
     }
 
     const profile = await resolveCurrentProfile(supabaseAdmin, {
-      authUserId: data.user.id,
       email: data.user.email,
     });
 
-    if (!profile || !profile.is_active) {
+    if (!profile) {
+      console.warn("[auth/profile] forbidden: no matching internal_profiles row");
+      res.status(403).json({ error: "Your account is not authorized for this portal." });
+      return;
+    }
+
+    if (!profile.is_active) {
+      console.warn("[auth/profile] forbidden: inactive profile");
       res.status(403).json({ error: "Your account is not authorized for this portal." });
       return;
     }

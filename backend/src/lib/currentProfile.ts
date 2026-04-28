@@ -9,7 +9,6 @@ export type CurrentProfile = {
 };
 
 type ResolveParams = {
-  authUserId?: string | null;
   email?: string | null;
 };
 
@@ -20,27 +19,8 @@ export async function resolveCurrentProfile(
   const normalizedEmail = params.email?.trim().toLowerCase() ?? "";
 
   console.log("[auth] session", {
-    authUserId: params.authUserId ?? null,
     email: normalizedEmail || null,
   });
-
-  if (params.authUserId) {
-    const { data, error } = await supabaseAdmin
-      .from("internal_profiles")
-      .select("id,email,display_name,role,is_active")
-      .eq("id", params.authUserId)
-      .maybeSingle();
-    if (error) {
-      throw new Error(error.message);
-    }
-    if (data) {
-      console.log("[auth] resolved profile", {
-        resolvedInternalProfileId: data.id,
-        strategy: "auth_user_id",
-      });
-      return data as CurrentProfile;
-    }
-  }
 
   if (!normalizedEmail) {
     console.log("[auth] resolved profile", {
