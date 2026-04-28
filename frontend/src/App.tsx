@@ -1,4 +1,5 @@
 import {
+  ChangeEvent,
   type CSSProperties,
   FormEvent,
   KeyboardEvent,
@@ -24,13 +25,14 @@ import {
   getMessages,
   getOrCreateDmConversation,
   removeGroupMember,
-  sendMessage,
+  toChatMessageFromSocket,
   type ChatMessage,
   type ConversationMember,
   type ConversationSummary,
 } from "./lib/chat";
 import { createMyUpdate, deleteMyUpdate, fetchUpdatesForUser, type UserUpdate } from "./lib/updates";
 import { createTypingChannel, subscribeToTeamPresence } from "./lib/presence";
+import { disconnectSocketClient, getSocketClient } from "./lib/socket";
 import { supabase } from "./lib/supabase";
 import Login from "./pages/Login";
 import TeamHubHome from "./pages/TeamHubHome";
@@ -387,6 +389,20 @@ function formatUnreadCount(count: number) {
   return count > 99 ? "99+" : `${count}`;
 }
 
+const ATTACHMENT_BUCKET = "teamchat-attachments";
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_FILE_BYTES = 20 * 1024 * 1024;
+const ALLOWED_FILE_MIME_EXACT = new Set([
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "text/plain",
+]);
+
+function safeFileName(name: string) {
+  return name.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
 function MainLayout() {
   const navigate = useNavigate();
   const { conversationId: conversationIdFromRoute } = useParams<{ conversationId?: string }>();
@@ -405,6 +421,8 @@ function MainLayout() {
   const [activeConversationMembers, setActiveConversationMembers] = useState<ConversationMember[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [composerText, setComposerText] = useState("");
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
+  const [attachmentUrlByPath, setAttachmentUrlByPath] = useState<Record<string, string>>({});
   const [showEmojiMenu, setShowEmojiMenu] = useState(false);
   const [searchText, setSearchText] = useState("");
   const [chatError, setChatError] = useState("");
@@ -430,10 +448,13 @@ function MainLayout() {
   const [restoredConversationId, setRestoredConversationId] = useState<string | null>(null);
   const timelineScrollRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const emojiMenuRef = useRef<HTMLDivElement | null>(null);
   const hasCompletedInitialLoadRef = useRef(false);
   const typingChannelRef = useRef<ReturnType<typeof createTypingChannel> | null>(null);
   const typingIdleTimerRef = useRef<number | null>(null);
+  const socketRef = useRef<ReturnType<typeof getSocketClient> | null>(null);
+  const activeConversationIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!selectedPetId) {
@@ -701,75 +722,157 @@ function MainLayout() {
   }, [activeConversation?.id]);
 
   useEffect(() => {
-    if (!currentProfile?.id) {
+    const attachmentPaths = Array.from(
+      new Set(messages.map((message) => message.attachment_path).filter((path): path is string => Boolean(path)))
+    );
+
+    if (attachmentPaths.length === 0) {
       return;
     }
 
-    const channel = supabase
-      .channel(`messages:for-user:${currentProfile.id}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "messages",
-        },
-        (payload) => {
-          const message = payload.new as ChatMessage;
-          const isOpenConversation = message.conversation_id === activeConversation?.id;
-          setLatestMessageByConversationId((existing) => ({
-            ...existing,
-            [message.conversation_id]: message,
-          }));
+    const missingPaths = attachmentPaths.filter((path) => !attachmentUrlByPath[path]);
+    if (missingPaths.length === 0) {
+      return;
+    }
 
-          if (isOpenConversation) {
-            setMessages((existing) => {
-              if (existing.some((item) => item.id === message.id)) {
-                return existing;
-              }
-              return [...existing, message];
-            });
-          } else if (message.sender_id !== currentProfile.id) {
-            setUnreadByConversationId((existing) => ({
-              ...existing,
-              [message.conversation_id]: (existing[message.conversation_id] ?? 0) + 1,
-            }));
-          }
-
-          const knownDmConversationId = dmConversationByUserId[message.sender_id];
-          if (!knownDmConversationId && message.sender_id !== currentProfile.id) {
-            void getConversationById(message.conversation_id)
-              .then((conversation) => {
-                if (conversation.type !== "dm") {
-                  return;
-                }
-                return getConversationMembers(message.conversation_id);
-              })
-              .then((members) => {
-                if (!members) {
-                  return;
-                }
-                const otherMember = members.find((member) => member.user_id !== currentProfile.id);
-                if (!otherMember) {
-                  return;
-                }
-                setDmConversationByUserId((existing) => ({
-                  ...existing,
-                  [otherMember.user_id]: message.conversation_id,
-                }));
-              })
-              .catch(() => {
-                // Non-blocking: unread logic still works by conversation id.
-              });
-          }
+    let cancelled = false;
+    void Promise.all(
+      missingPaths.map(async (path) => {
+        const { data, error } = await supabase.storage.from(ATTACHMENT_BUCKET).createSignedUrl(path, 60 * 60);
+        if (error || !data?.signedUrl) {
+          return null;
         }
-      )
-      .subscribe();
+        return [path, data.signedUrl] as const;
+      })
+    ).then((entries) => {
+      if (cancelled) {
+        return;
+      }
+      const mapped = entries.filter((entry): entry is readonly [string, string] => Boolean(entry));
+      if (mapped.length === 0) {
+        return;
+      }
+      setAttachmentUrlByPath((existing) => ({
+        ...existing,
+        ...Object.fromEntries(mapped),
+      }));
+    });
 
     return () => {
-      supabase.removeChannel(channel);
+      cancelled = true;
     };
-  }, [activeConversation?.id, currentProfile?.id, dmConversationByUserId]);
+  }, [attachmentUrlByPath, messages]);
+
+  useEffect(() => {
+    let isMounted = true;
+    let cleanupAuthSubscription: (() => void) | null = null;
+
+    const setupSocket = async () => {
+      if (!currentProfile?.id) {
+        return;
+      }
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const accessToken = session?.access_token;
+      if (!accessToken) {
+        return;
+      }
+      const socket = getSocketClient(accessToken);
+      socketRef.current = socket;
+
+      const onMessageNew = (incomingPayload: Parameters<typeof toChatMessageFromSocket>[0]) => {
+        const message = toChatMessageFromSocket(incomingPayload);
+        const activeConversationId = activeConversationIdRef.current;
+        const isOpenConversation = message.conversation_id === activeConversationId;
+        setLatestMessageByConversationId((existing) => ({
+          ...existing,
+          [message.conversation_id]: message,
+        }));
+
+        if (isOpenConversation) {
+          setMessages((existing) => {
+            if (existing.some((item) => item.id === message.id)) {
+              return existing;
+            }
+            return [...existing, message];
+          });
+        } else if (message.sender_id !== currentProfile.id) {
+          setUnreadByConversationId((existing) => ({
+            ...existing,
+            [message.conversation_id]: (existing[message.conversation_id] ?? 0) + 1,
+          }));
+        }
+      };
+
+      const onMessageError = (errorPayload: { message: string }) => {
+        if (!isMounted) {
+          return;
+        }
+        setChatError(errorPayload.message || "Message failed.");
+      };
+
+      socket.on("message:new", onMessageNew);
+      socket.on("message:error", onMessageError);
+      if (activeConversationIdRef.current) {
+        socket.emit("conversation:join", { conversationId: activeConversationIdRef.current });
+      }
+
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+        if (nextSession?.access_token) {
+          socket.auth = { token: nextSession.access_token };
+          if (!socket.connected) {
+            socket.connect();
+          }
+        } else {
+          disconnectSocketClient();
+          socketRef.current = null;
+        }
+      });
+
+      cleanupAuthSubscription = () => subscription.unsubscribe();
+
+      if (!isMounted) {
+        socket.off("message:new", onMessageNew);
+        socket.off("message:error", onMessageError);
+      }
+    };
+
+    void setupSocket();
+
+    return () => {
+      isMounted = false;
+      cleanupAuthSubscription?.();
+      const socket = socketRef.current;
+      if (socket) {
+        socket.removeAllListeners("message:new");
+        socket.removeAllListeners("message:error");
+      }
+      disconnectSocketClient();
+      socketRef.current = null;
+    };
+  }, [currentProfile?.id]);
+
+  useEffect(() => {
+    const socket = socketRef.current;
+    const previousConversationId = activeConversationIdRef.current;
+    const nextConversationId = activeConversation?.id ?? null;
+    if (!socket) {
+      activeConversationIdRef.current = nextConversationId;
+      return;
+    }
+
+    if (previousConversationId && previousConversationId !== nextConversationId) {
+      socket.emit("conversation:leave", { conversationId: previousConversationId });
+    }
+    if (nextConversationId) {
+      socket.emit("conversation:join", { conversationId: nextConversationId });
+    }
+
+    activeConversationIdRef.current = nextConversationId;
+  }, [activeConversation?.id]);
 
   useEffect(() => {
     if (!selectedUpdatesUserId) {
@@ -1256,17 +1359,15 @@ function MainLayout() {
           },
         });
       }
-      const createdMessage = await sendMessage(activeConversation.id, composerText);
-      setMessages((existing) => {
-        if (existing.some((message) => message.id === createdMessage.id)) {
-          return existing;
-        }
-        return [...existing, createdMessage];
+      const socket = socketRef.current;
+      if (!socket) {
+        throw new Error("Realtime connection unavailable.");
+      }
+      socket.emit("message:send", {
+        conversationId: activeConversation.id,
+        body: composerText.trim(),
+        messageType: "text",
       });
-      setLatestMessageByConversationId((existing) => ({
-        ...existing,
-        [createdMessage.conversation_id]: createdMessage,
-      }));
       setComposerText("");
       await refreshGroups();
     } catch (error) {
@@ -1274,6 +1375,63 @@ function MainLayout() {
       setChatError(error instanceof Error ? error.message : "Unable to send message.");
     } finally {
       setIsSending(false);
+    }
+  };
+
+  const handleAttachmentSelect = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !activeConversation?.id || !currentProfile?.id) {
+      return;
+    }
+
+    const isImage = file.type.startsWith("image/");
+    const maxBytes = isImage ? MAX_IMAGE_BYTES : MAX_FILE_BYTES;
+    if (file.size > maxBytes) {
+      setChatError(isImage ? "Images must be <= 10MB." : "Files must be <= 20MB.");
+      event.target.value = "";
+      return;
+    }
+
+    if (!isImage && !ALLOWED_FILE_MIME_EXACT.has(file.type)) {
+      setChatError("This file type is not allowed.");
+      event.target.value = "";
+      return;
+    }
+
+    try {
+      setIsUploadingAttachment(true);
+      setChatError("");
+
+      const filePath = `${activeConversation.id}/${currentProfile.id}/${Date.now()}-${safeFileName(file.name)}`;
+      const { error: uploadError } = await supabase.storage.from(ATTACHMENT_BUCKET).upload(filePath, file, {
+        contentType: file.type,
+        upsert: false,
+      });
+      if (uploadError) {
+        throw new Error(uploadError.message);
+      }
+
+      const socket = socketRef.current;
+      if (!socket) {
+        throw new Error("Realtime connection unavailable.");
+      }
+      socket.emit("message:send", {
+        conversationId: activeConversation.id,
+        body: "",
+        messageType: isImage ? "image" : "file",
+        attachment: {
+          path: filePath,
+          name: file.name,
+          mimeType: file.type,
+          size: file.size,
+        },
+      });
+      await refreshGroups();
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : "Unable to upload attachment.");
+    } finally {
+      setIsUploadingAttachment(false);
+      event.target.value = "";
     }
   };
 
@@ -1426,7 +1584,14 @@ function MainLayout() {
                   {(() => {
                     const dmConversationId = dmConversationByUserId[user.id];
                     const unreadCount = unreadByConversationId[dmConversationId] ?? 0;
-                    const preview = dmConversationId ? latestMessageByConversationId[dmConversationId]?.body : "";
+                    const latestMessage = dmConversationId ? latestMessageByConversationId[dmConversationId] : undefined;
+                    const preview =
+                      latestMessage?.body?.trim() ||
+                      (latestMessage?.message_type === "image"
+                        ? "Image attachment"
+                        : latestMessage?.message_type === "file"
+                          ? latestMessage.attachment_name || "File attachment"
+                          : "");
                     return (
                   <button
                     type="button"
@@ -1449,7 +1614,7 @@ function MainLayout() {
                           {user.display_name}
                         </span>
                         <span className="sidebar-item-preview">
-                          {preview?.trim() ? preview : "No messages yet"}
+                          {preview ? preview : "No messages yet"}
                         </span>
                       </span>
                     </span>
@@ -1476,7 +1641,14 @@ function MainLayout() {
                 <li key={group.id}>
                   {(() => {
                     const unreadCount = unreadByConversationId[group.id] ?? 0;
-                    const preview = latestMessageByConversationId[group.id]?.body;
+                    const latestMessage = latestMessageByConversationId[group.id];
+                    const preview =
+                      latestMessage?.body?.trim() ||
+                      (latestMessage?.message_type === "image"
+                        ? "Image attachment"
+                        : latestMessage?.message_type === "file"
+                          ? latestMessage.attachment_name || "File attachment"
+                          : "");
                     return (
                   <button
                     type="button"
@@ -1489,7 +1661,7 @@ function MainLayout() {
                       </span>
                       <span className="sidebar-item-text-wrap">
                         <span className="sidebar-item-name">{group.title || "Untitled group"}</span>
-                        <span className="sidebar-item-preview">{preview?.trim() ? preview : "No messages yet"}</span>
+                        <span className="sidebar-item-preview">{preview ? preview : "No messages yet"}</span>
                       </span>
                     </span>
                     {unreadCount > 0 ? (
@@ -1603,7 +1775,11 @@ function MainLayout() {
                       ) : null}
                       <div className="message-bubble-wrap">
                         <div className="message-hover-actions" aria-hidden="true">
-                          <button type="button" onClick={() => void navigator.clipboard.writeText(message.body)} title="Copy message">
+                          <button
+                            type="button"
+                            onClick={() => void navigator.clipboard.writeText(message.body || message.attachment_name || "")}
+                            title="Copy message"
+                          >
                             Copy
                           </button>
                           <button type="button" title="Add reaction">
@@ -1613,7 +1789,46 @@ function MainLayout() {
                             •••
                           </button>
                         </div>
-                        <p className="message-body">{message.body}</p>
+                        {message.message_type === "image" && message.attachment_path ? (
+                          <div className="message-attachment">
+                            {attachmentUrlByPath[message.attachment_path] ? (
+                              <a
+                                href={attachmentUrlByPath[message.attachment_path]}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="message-attachment-image-link"
+                              >
+                                <img
+                                  src={attachmentUrlByPath[message.attachment_path]}
+                                  alt={message.attachment_name ?? "Image attachment"}
+                                  className="message-attachment-image"
+                                />
+                              </a>
+                            ) : (
+                              <span className="message-attachment-loading">Loading image...</span>
+                            )}
+                            {message.body ? <p className="message-body">{message.body}</p> : null}
+                          </div>
+                        ) : null}
+                        {message.message_type === "file" && message.attachment_path ? (
+                          <div className="message-attachment message-attachment-file">
+                            <span className="message-attachment-name">{message.attachment_name ?? "Attachment"}</span>
+                            {attachmentUrlByPath[message.attachment_path] ? (
+                              <a
+                                href={attachmentUrlByPath[message.attachment_path]}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="message-attachment-link"
+                              >
+                                Open
+                              </a>
+                            ) : (
+                              <span className="message-attachment-loading">Preparing file...</span>
+                            )}
+                            {message.body ? <p className="message-body">{message.body}</p> : null}
+                          </div>
+                        ) : null}
+                        {message.message_type === "text" ? <p className="message-body">{message.body}</p> : null}
                       </div>
                       <span className="message-time">
                         {new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -1666,7 +1881,24 @@ function MainLayout() {
                 onKeyDown={handleComposerKeyDown}
                 disabled={!activeConversation}
               />
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="attachment-input"
+                accept="image/*,.pdf,.doc,.docx,.txt"
+                onChange={handleAttachmentSelect}
+              />
             </div>
+            <button
+              type="button"
+              className="attachment-toggle"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={!activeConversation || isUploadingAttachment}
+              aria-label="Upload attachment"
+              title="Upload image or file"
+            >
+              {isUploadingAttachment ? "..." : "📎"}
+            </button>
             <button
               type="button"
               className="emoji-toggle"
@@ -1679,7 +1911,7 @@ function MainLayout() {
             <button
               type="button"
               onClick={handleSend}
-              disabled={!activeConversation || isSending || !composerText.trim()}
+              disabled={!activeConversation || isSending || isUploadingAttachment || !composerText.trim()}
             >
               Send
             </button>

@@ -23,7 +23,19 @@ export type ChatMessage = {
   conversation_id: string;
   sender_id: string;
   body: string;
+  message_type: "text" | "image" | "file";
+  attachment_path: string | null;
+  attachment_name: string | null;
+  attachment_mime_type: string | null;
+  attachment_size: number | null;
   created_at: string;
+};
+
+export type OutgoingAttachment = {
+  path: string;
+  name: string;
+  mimeType: string;
+  size: number;
 };
 
 export async function getActiveTeammates() {
@@ -170,7 +182,9 @@ export async function getConversationMembers(conversationId: string) {
 export async function getMessages(conversationId: string) {
   const { data, error } = await supabase
     .from("messages")
-    .select("id,conversation_id,sender_id,body,created_at")
+    .select(
+      "id,conversation_id,sender_id,body,message_type,attachment_path,attachment_name,attachment_mime_type,attachment_size,created_at"
+    )
     .eq("conversation_id", conversationId)
     .order("created_at", { ascending: true });
 
@@ -188,7 +202,9 @@ export async function getLatestMessagesByConversationId(conversationIds: string[
 
   const { data, error } = await supabase
     .from("messages")
-    .select("id,conversation_id,sender_id,body,created_at")
+    .select(
+      "id,conversation_id,sender_id,body,message_type,attachment_path,attachment_name,attachment_mime_type,attachment_size,created_at"
+    )
     .in("conversation_id", conversationIds)
     .order("created_at", { ascending: false })
     .limit(Math.max(conversationIds.length * 20, 1000));
@@ -260,8 +276,11 @@ export async function sendMessage(conversationId: string, body: string) {
       conversation_id: conversationId,
       sender_id: userResult.user.id,
       body: trimmed,
+      message_type: "text",
     })
-    .select("id,conversation_id,sender_id,body,created_at")
+    .select(
+      "id,conversation_id,sender_id,body,message_type,attachment_path,attachment_name,attachment_mime_type,attachment_size,created_at"
+    )
     .single();
 
   if (error) {
@@ -271,5 +290,33 @@ export async function sendMessage(conversationId: string, body: string) {
 
   console.log("[sendMessage success]", data);
   return data as ChatMessage;
+}
+
+export function toChatMessageFromSocket(payload: {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  body: string;
+  messageType: "text" | "image" | "file";
+  attachment?: {
+    path: string;
+    name: string;
+    mimeType: string;
+    size: number;
+  } | null;
+  createdAt: string;
+}): ChatMessage {
+  return {
+    id: payload.id,
+    conversation_id: payload.conversationId,
+    sender_id: payload.senderId,
+    body: payload.body,
+    message_type: payload.messageType,
+    attachment_path: payload.attachment?.path ?? null,
+    attachment_name: payload.attachment?.name ?? null,
+    attachment_mime_type: payload.attachment?.mimeType ?? null,
+    attachment_size: payload.attachment?.size ?? null,
+    created_at: payload.createdAt,
+  };
 }
 

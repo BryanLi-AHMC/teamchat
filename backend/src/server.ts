@@ -1,14 +1,16 @@
 import cors from "cors";
 import express from "express";
+import { createServer } from "http";
 
 import { env } from "./config/env";
 import { groupsRouter } from "./routes/groups";
 import { healthRouter } from "./routes/health";
 import { messagesRouter } from "./routes/messages";
 import { progressRouter } from "./routes/progress";
+import { attachSocketServer } from "./socket";
 
 const app = express();
-const PORT = process.env.PORT || 3003;
+const PORT = env.port;
 
 app.use(
   cors({
@@ -36,7 +38,10 @@ app.use("/api/messages", messagesRouter);
 app.use("/api/groups", groupsRouter);
 app.use("/api/progress", progressRouter);
 
-app.listen(PORT, () => {
+const httpServer = createServer(app);
+attachSocketServer(httpServer, env.frontendOrigin);
+
+httpServer.listen(PORT, () => {
   console.log("=== TEAMCHAT BACKEND STARTED ===");
   console.log("Port:", PORT);
   console.log("Environment:", process.env.NODE_ENV || "development");

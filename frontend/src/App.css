@@ -1124,6 +1124,51 @@
   color: #fff;
 }
 
+.message-attachment {
+  margin: 0;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid #e4e0ea;
+  background: #fff;
+}
+
+.message-row-own .message-attachment {
+  border-color: color-mix(in srgb, var(--teamchat-accent) 45%, #ffffff);
+  background: color-mix(in srgb, var(--teamchat-accent) 12%, #ffffff);
+}
+
+.message-attachment-image {
+  max-width: 280px;
+  max-height: 220px;
+  border-radius: 10px;
+  display: block;
+}
+
+.message-attachment-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.message-attachment-name {
+  font-size: 13px;
+  color: #2d2435;
+  font-weight: 600;
+}
+
+.message-attachment-link {
+  font-size: 12px;
+  color: #7c35f2;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.message-attachment-loading {
+  font-size: 12px;
+  color: #6a5d76;
+}
+
 .message-time {
   margin: 4px 8px 0;
   color: #4f435b;
@@ -1306,6 +1351,21 @@
   cursor: pointer;
 }
 
+.chat-input-bar .attachment-toggle {
+  border: 1px solid var(--teamchat-border);
+  background: #fff;
+  color: var(--teamchat-accent);
+  border-radius: 8px;
+  width: 40px;
+  min-width: 40px;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.attachment-input {
+  display: none;
+}
+
 .emoji-menu {
   position: absolute;
   left: 0;
@@ -1337,7 +1397,7 @@
   background: #f8f6fb;
 }
 
-.chat-input-bar button:not(.emoji-toggle) {
+.chat-input-bar button:not(.emoji-toggle):not(.attachment-toggle) {
   border: 1px solid var(--teamchat-accent);
   background: var(--teamchat-accent);
   color: #fff;
@@ -1347,12 +1407,12 @@
   cursor: pointer;
 }
 
-.chat-input-bar button:not(.emoji-toggle):hover:not(:disabled) {
+.chat-input-bar button:not(.emoji-toggle):not(.attachment-toggle):hover:not(:disabled) {
   background: var(--teamchat-accent-hover);
   border-color: var(--teamchat-accent-hover);
 }
 
-.chat-input-bar button:not(.emoji-toggle):disabled {
+.chat-input-bar button:not(.emoji-toggle):not(.attachment-toggle):disabled {
   opacity: 0.7;
   cursor: not-allowed;
 }
@@ -2347,6 +2407,17 @@
 }
 
 @media (max-width: 900px) {
+  html,
+  body,
+  #root {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
   .app-shell {
     position: relative;
     grid-template-columns: minmax(0, 1fr);
@@ -2357,6 +2428,8 @@
     max-height: none;
     border-radius: 0;
     box-shadow: none;
+    gap: 0;
+    overflow-x: hidden;
   }
 
   .sidebar {
@@ -2373,8 +2446,234 @@
     grid-row: 1;
   }
 
+  .chat-panel.center-column {
+    padding: 18px 14px 22px;
+  }
+
+  .team-pet-dashboard-inner {
+    padding: 0;
+    gap: 14px;
+  }
+
+  .identity-bar {
+    min-height: 0;
+  }
+
   .message-content {
     max-width: 75%;
   }
+}
 
+@media (max-width: 640px) {
+  .team-pet-dashboard-header {
+    padding: 0;
+    margin-bottom: 10px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .team-pet-dashboard-title {
+    font-size: 24px;
+  }
+
+  .team-pet-dashboard-subtitle {
+    font-size: 15px;
+    line-height: 1.35;
+  }
+
+  .team-pet-dashboard-header-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .team-pet-dashboard-back,
+  .logout-btn {
+    width: 100%;
+    min-height: 44px;
+    border-radius: 16px;
+    text-align: center;
+  }
+
+  .dashboard-map-stage {
+    width: 100%;
+    max-width: 100%;
+    border-radius: 22px;
+    aspect-ratio: 1 / 1;
+  }
+
+  .app-shell {
+    --map-pet-size: clamp(44px, 13vw, 64px);
+    --map-leader-pet-size: clamp(58px, 18vw, 82px);
+  }
+
+  .team-pet-map-pin-hit {
+    gap: 5px;
+  }
+
+  .team-pet-map-pin-label {
+    font-size: 11px;
+    padding: 4px 8px;
+    max-width: 84px;
+  }
+
+  .team-pet-map-pin-leader-pill {
+    font-size: 8px;
+    padding: 2px 6px;
+  }
+
+  .dashboard-map-stage .xp-progress-badge,
+  .dashboard-map-stage .xp-progress-badge--map {
+    width: 74px;
+    min-width: 74px;
+    min-height: 36px;
+    padding: 5px 7px;
+    border-radius: 14px;
+  }
+
+  .dashboard-map-stage .xp-progress-badge__level,
+  .dashboard-map-stage .xp-label,
+  .dashboard-map-stage .xp-progress-badge__fraction,
+  .dashboard-map-stage .xp-value {
+    font-size: 8px;
+  }
+
+  .dashboard-map-stage .xp-track,
+  .dashboard-map-stage .xp-progress-badge__track {
+    height: 3px;
+  }
+
+  .identity-bar {
+    min-height: 0;
+    padding: 22px 20px;
+    border-radius: 22px;
+  }
+
+  .identity-bar-title {
+    font-size: 22px;
+  }
+
+  .identity-bar-panel {
+    gap: 10px;
+  }
+
+  .identity-bar-save {
+    position: static;
+    align-self: flex-start;
+    margin-top: 2px;
+  }
+
+  .choose-pet-section {
+    margin-top: 14px;
+  }
+
+  .pet-picker-grid,
+  .identity-pet-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(52px, 1fr));
+    grid-auto-flow: row;
+    grid-auto-columns: unset;
+    grid-template-rows: none;
+    gap: 16px 18px;
+    justify-content: stretch;
+    overflow: visible;
+    padding: 8px 0;
+  }
+
+  .pet-option {
+    width: 54px;
+    height: 54px;
+    justify-self: center;
+  }
+
+  .pet-option img,
+  .pet-option .pet-avatar {
+    width: 42px;
+    height: 42px;
+  }
+
+  .pet-option.selected,
+  .pet-option.pet-option--selected {
+    width: 60px;
+    height: 60px;
+  }
+
+  .identity-bar-color-row,
+  .team-color-row {
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: flex-start;
+    margin-top: 12px;
+  }
+
+  .color-dot {
+    width: 38px;
+    height: 38px;
+  }
+
+  .right-panel.updates-panel {
+    width: min(100vw, 390px);
+  }
+
+  .updates-header h3 {
+    font-size: 22px;
+  }
+
+  .updates-composer textarea {
+    min-height: 84px;
+    font-size: 16px;
+  }
+
+  .updates-composer button {
+    min-height: 42px;
+    border-radius: 16px;
+  }
+
+  .updates-toggle-mobile {
+    right: 16px;
+    bottom: 16px;
+    min-height: 46px;
+    border-radius: 999px;
+  }
+}
+
+@media (max-width: 430px) {
+  .app-shell {
+    --map-pet-size: 42px;
+    --map-leader-pet-size: 60px;
+  }
+
+  .team-pet-map-pin-label {
+    font-size: 10px;
+    padding: 3px 7px;
+    max-width: 72px;
+  }
+
+  .team-pet-map-pin-leader-pill {
+    display: none;
+  }
+
+  .dashboard-map-stage .xp-progress-badge,
+  .dashboard-map-stage .xp-progress-badge--map {
+    width: 64px;
+    min-width: 64px;
+    min-height: 32px;
+    padding: 4px 6px;
+  }
+
+  .pet-picker-grid,
+  .identity-pet-grid {
+    grid-template-columns: repeat(4, minmax(44px, 1fr));
+    gap: 12px 12px;
+  }
+
+  .identity-bar {
+    padding: 20px 16px;
+  }
+
+  .identity-bar-title {
+    font-size: 20px;
+  }
 }

@@ -64,6 +64,8 @@
   position: relative;
   --login-card-width: 430px;
   --pet-size: 56px;
+  --orbit-gap: 18px;
+  --top-orbit-gap: 18px;
   width: min(var(--login-card-width), calc(100vw - 32px));
   margin: 0 auto;
   isolation: isolate;
@@ -198,24 +200,61 @@
 
 @media (max-width: 640px) {
   .login-page {
-    padding: 16px;
-    gap: 16px;
+    min-height: 100svh;
+    padding: 18px 14px;
+    gap: 14px;
+    overflow-x: hidden;
   }
 
   .login-brand-title {
-    font-size: 34px;
+    font-size: clamp(34px, 10vw, 48px);
   }
 
   .login-card-orbit-shell {
-    width: calc(100vw - 32px);
-    --pet-size: 52px;
+    width: min(calc(100vw - 56px), 420px);
+    --pet-size: 44px;
+    --orbit-gap: 6px;
+    --top-orbit-gap: 64px;
   }
 
   .login-card {
-    padding: 28px 24px;
+    border-radius: 24px;
+    padding: 30px 24px 28px;
   }
 
   .login-title {
-    font-size: 28px;
+    font-size: clamp(28px, 8vw, 36px);
+    margin-bottom: 18px;
+  }
+
+  .login-form {
+    gap: 10px;
+  }
+
+  .login-form input {
+    height: 52px;
+    border-radius: 16px;
+  }
+
+  .login-form button {
+    height: 56px;
+    border-radius: 18px;
+  }
+}
+
+@media (max-width: 430px) {
+  .login-card-orbit-shell {
+    width: min(calc(100vw - 64px), 390px);
+    --pet-size: 40px;
+    --orbit-gap: 4px;
+    --top-orbit-gap: 58px;
+  }
+
+  .pets-orbit-layer {
+    overflow: visible;
+  }
+
+  .login-card {
+    padding: 28px 20px 24px;
   }
 }

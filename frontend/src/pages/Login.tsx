@@ -15,8 +15,9 @@ const petImages = [
 ];
 
 const PET_COUNT = 7;
-const PET_SIZE = 34;
-const ORBIT_OFFSET = 18;
+const PET_SIZE = 56;
+const ORBIT_GAP = 18;
+const TOP_ORBIT_GAP = 18;
 const PET_SPACING = 52;
 const ORBIT_SPEED = 58;
 
@@ -24,10 +25,10 @@ function pointOnRoundedRectPerimeter(
   distance: number,
   width: number,
   height: number,
-  offset: number
+  offsets: { left: number; right: number; top: number; bottom: number }
 ) {
-  const w = width + offset * 2;
-  const h = height + offset * 2;
+  const w = width + offsets.left + offsets.right;
+  const h = height + offsets.top + offsets.bottom;
   const perimeter = 2 * (w + h);
   const d = ((distance % perimeter) + perimeter) % perimeter;
 
@@ -57,8 +58,8 @@ function pointOnRoundedRectPerimeter(
   }
 
   return {
-    x: x - offset,
-    y: y - offset,
+    x: x - offsets.left,
+    y: y - offsets.top,
   };
 }
 
@@ -123,12 +124,25 @@ function Login() {
           Number.parseFloat(
             window.getComputedStyle(shell).getPropertyValue("--pet-size")
           ) || PET_SIZE;
+        const orbitGap =
+          Number.parseFloat(
+            window.getComputedStyle(shell).getPropertyValue("--orbit-gap")
+          ) || ORBIT_GAP;
+        const topOrbitGap =
+          Number.parseFloat(
+            window.getComputedStyle(shell).getPropertyValue("--top-orbit-gap")
+          ) || TOP_ORBIT_GAP;
         const nextPositions = petImages.slice(0, PET_COUNT).map((_, index) => {
           const point = pointOnRoundedRectPerimeter(
             baseDistance + index * PET_SPACING,
             cardRect.width,
             cardRect.height,
-            ORBIT_OFFSET
+            {
+              left: orbitGap,
+              right: orbitGap,
+              top: topOrbitGap,
+              bottom: orbitGap,
+            }
           );
 
           const x = cardRect.left - shellRect.left + point.x - petSize / 2;
