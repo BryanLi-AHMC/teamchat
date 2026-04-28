@@ -57,8 +57,11 @@ export function getSocketClient(accessToken: string) {
       auth: {
         token: accessToken,
       },
-      transports: ["websocket", "polling"],
       withCredentials: true,
+    });
+    // TODO: Remove after deployment validation confirms transport upgrades are stable.
+    socket.io.engine.on("upgrade", (transport) => {
+      console.log("[socket] upgraded transport", transport.name);
     });
     socket.on("connect", () => {
       console.log("[socket] connected", socket?.id, SOCKET_URL);

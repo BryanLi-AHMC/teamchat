@@ -1505,6 +1505,30 @@
   gap: 10px;
 }
 
+.team-pet-dashboard-header-actions .team-action-button {
+  border: 2px solid rgba(126, 63, 242, 0.24);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #7e3ff2;
+  font-weight: 800;
+  min-height: 58px;
+  padding: 0 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  white-space: nowrap;
+  box-shadow: 0 10px 24px rgba(126, 63, 242, 0.08);
+}
+
+.team-pet-dashboard-header-actions .team-action-button:hover {
+  background: color-mix(in srgb, rgba(255, 255, 255, 0.92) 76%, rgba(234, 220, 255, 0.8));
+}
+
+.updates-toggle-mobile--dashboard {
+  display: none;
+}
+
 .team-pet-dashboard-title {
   margin: 0;
   font-size: 18px;
@@ -1522,16 +1546,17 @@
 }
 
 .team-pet-dashboard-back {
-  border: 1.5px solid rgba(139, 63, 246, 0.22);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.74);
-  color: #7c35f2;
-  font-size: 12px;
-  font-weight: 700;
+  border: 2px solid rgba(126, 63, 242, 0.24);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #7e3ff2;
+  min-height: 58px;
+  font-size: 16px;
+  font-weight: 800;
   cursor: pointer;
   text-decoration: none;
-  padding: 7px 12px;
-  box-shadow: 0 8px 18px rgba(116, 72, 180, 0.08);
+  padding: 0 18px;
+  box-shadow: 0 10px 24px rgba(126, 63, 242, 0.08);
 }
 
 .team-pet-dashboard-back:hover {
@@ -1543,27 +1568,29 @@
 }
 
 .team-pet-dashboard-back--quiet:hover {
-  color: #6b4b8c;
+  color: #7e3ff2;
+  background: color-mix(in srgb, rgba(255, 255, 255, 0.92) 76%, rgba(234, 220, 255, 0.8));
   opacity: 1;
 }
 
 .logout-btn {
-  border: 1.5px solid rgba(139, 63, 246, 0.22);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.74);
-  color: #7c35f2;
-  padding: 7px 14px;
-  font-size: 13px;
-  font-weight: 700;
+  border: 2px solid rgba(126, 63, 242, 0.24);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #7e3ff2;
+  padding: 0 18px;
+  min-height: 58px;
+  font-size: 16px;
+  font-weight: 800;
   cursor: pointer;
-  box-shadow: 0 8px 18px rgba(116, 72, 180, 0.08);
+  box-shadow: 0 10px 24px rgba(126, 63, 242, 0.08);
   transition: transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
 }
 
 .logout-btn:hover {
   transform: translateY(-1px);
   box-shadow: 0 12px 22px rgba(116, 72, 180, 0.12);
-  background: rgba(234, 220, 255, 0.45);
+  background: color-mix(in srgb, rgba(255, 255, 255, 0.92) 76%, rgba(234, 220, 255, 0.8));
 }
 
 .team-pet-dashboard-map-area {
@@ -2404,6 +2431,10 @@
   .updates-toggle-mobile:hover {
     filter: brightness(1.02);
   }
+
+  .updates-toggle-mobile--dashboard {
+    display: none;
+  }
 }
 
 @media (max-width: 900px) {
@@ -2488,6 +2519,20 @@
     box-shadow: 0 14px 28px rgba(139, 63, 246, 0.28);
   }
 
+  .updates-toggle-mobile--dashboard {
+    position: static;
+    inset: auto;
+    transform: none;
+    z-index: auto;
+    box-shadow: 0 10px 24px rgba(126, 63, 242, 0.08);
+    border: 2px solid rgba(126, 63, 242, 0.24);
+    border-radius: 28px;
+    background: rgba(255, 255, 255, 0.92);
+    color: #7e3ff2;
+    min-height: 58px;
+    padding: 0 18px;
+  }
+
   .chat-panel.center-column {
     padding: 18px 14px 22px;
   }
@@ -2528,15 +2573,33 @@
     width: 100%;
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 10px;
+    gap: 12px;
+    margin-top: 16px;
+    margin-bottom: 20px;
   }
 
   .team-pet-dashboard-back,
-  .logout-btn {
+  .logout-btn,
+  .team-pet-dashboard-header-actions .team-action-button {
     width: 100%;
-    min-height: 44px;
-    border-radius: 16px;
+    min-height: 54px;
+    border-radius: 26px;
+    font-size: 15px;
+    padding: 0 14px;
     text-align: center;
+  }
+
+  .team-pet-dashboard-header-actions .team-action-button-updates {
+    display: inline-flex;
+    grid-column: 1 / -1;
+    width: 100%;
+    position: static !important;
+    transform: none !important;
+    inset: auto !important;
+    margin: 0;
+    background: rgba(255, 255, 255, 0.92);
+    color: #7e3ff2;
+    border: 2px solid rgba(126, 63, 242, 0.24);
   }
 
   .dashboard-map-stage {

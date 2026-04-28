@@ -1736,6 +1736,7 @@ function MainLayout() {
               totalXpByUserId={totalXpByUserId}
               onBackToDashboard={goToDashboard}
               onLogout={() => void handleLogout()}
+              onToggleUpdates={() => setShowUpdatesPanel((existing) => !existing)}
               onOpenTeammateDm={(userId) => void openDmConversation(userId)}
             />
           ) : null}
@@ -2084,9 +2085,11 @@ function MainLayout() {
       </aside>
     </div>
 
-      <button type="button" className="updates-toggle-mobile" onClick={() => setShowUpdatesPanel((existing) => !existing)}>
-        Updates
-      </button>
+      {!isTeamDashboardView ? (
+        <button type="button" className="updates-toggle-mobile" onClick={() => setShowUpdatesPanel((existing) => !existing)}>
+          Updates
+        </button>
+      ) : null}
 
       {showGroupModal ? (
         <NewGroupModal

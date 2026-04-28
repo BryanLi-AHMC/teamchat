@@ -18,6 +18,7 @@ export type TeamPetDashboardProps = {
   totalXpByUserId: Record<string, number>;
   onBackToDashboard: () => void;
   onLogout: () => void;
+  onToggleUpdates: () => void;
   onOpenTeammateDm: (userId: string) => void;
 };
 
@@ -93,6 +94,7 @@ export function TeamPetDashboard({
   totalXpByUserId,
   onBackToDashboard,
   onLogout,
+  onToggleUpdates,
   onOpenTeammateDm,
 }: TeamPetDashboardProps) {
   const pins = useMemo(() => {
@@ -163,11 +165,22 @@ export function TeamPetDashboard({
             <h2 className="team-pet-dashboard-title">Team Dashboard</h2>
           </div>
           <div className="team-pet-dashboard-header-actions">
-            <button type="button" className="team-pet-dashboard-back team-pet-dashboard-back--quiet" onClick={onBackToDashboard}>
+            <button
+              type="button"
+              className="team-pet-dashboard-back team-pet-dashboard-back--quiet team-action-button"
+              onClick={onBackToDashboard}
+            >
               Back to Dashboard
             </button>
-            <button type="button" className="logout-btn" onClick={onLogout}>
+            <button type="button" className="logout-btn team-action-button" onClick={onLogout}>
               Logout
+            </button>
+            <button
+              type="button"
+              className="updates-toggle-mobile updates-toggle-mobile--dashboard team-action-button team-action-button-updates"
+              onClick={onToggleUpdates}
+            >
+              Updates
             </button>
           </div>
         </header>
