@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 
 const logActualPortPlugin = () => ({
   name: 'log-actual-port',
@@ -17,7 +18,7 @@ const logActualPortPlugin = () => ({
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), logActualPortPlugin()],
+  plugins: [react(), tailwindcss(), logActualPortPlugin()],
   server: {
     port: 5173,
     strictPort: false,

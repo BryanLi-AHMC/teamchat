@@ -29,7 +29,7 @@ export type ChatMessage = {
 export async function getActiveTeammates() {
   const { data, error } = await supabase
     .from("internal_profiles")
-    .select("id,email,display_name,avatar_url,role,is_active,created_at,updated_at")
+    .select("id,email,display_name,role,is_active")
     .eq("is_active", true)
     .order("display_name", { ascending: true });
 
@@ -179,6 +179,68 @@ export async function getMessages(conversationId: string) {
   }
 
   return (data ?? []) as ChatMessage[];
+}
+
+export async function getLatestMessagesByConversationId(conversationIds: string[]) {
+  if (conversationIds.length === 0) {
+    return {} as Record<string, ChatMessage>;
+  }
+
+  const { data, error } = await supabase
+    .from("messages")
+    .select("id,conversation_id,sender_id,body,created_at")
+    .in("conversation_id", conversationIds)
+    .order("created_at", { ascending: false })
+    .limit(Math.max(conversationIds.length * 20, 1000));
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const latestByConversationId: Record<string, ChatMessage> = {};
+  for (const message of (data ?? []) as ChatMessage[]) {
+    if (!latestByConversationId[message.conversation_id]) {
+      latestByConversationId[message.conversation_id] = message;
+    }
+  }
+
+  return latestByConversationId;
+}
+
+export async function addGroupMembers(conversationId: string, userIds: string[]) {
+  if (userIds.length === 0) {
+    return;
+  }
+
+  const { error } = await supabase.rpc("add_group_members", {
+    target_conversation_id: conversationId,
+    target_user_ids: userIds,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+export async function removeGroupMember(conversationId: string, targetUserId: string) {
+  const { error } = await supabase.rpc("remove_group_member", {
+    target_conversation_id: conversationId,
+    target_user_id: targetUserId,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+export async function dissolveGroup(conversationId: string) {
+  const { error } = await supabase.rpc("dissolve_group", {
+    target_conversation_id: conversationId,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
 }
 
 export async function sendMessage(conversationId: string, body: string) {

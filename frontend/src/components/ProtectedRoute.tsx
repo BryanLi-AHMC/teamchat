@@ -1,4 +1,4 @@
-import { PropsWithChildren, useEffect, useState } from "react";
+import { PropsWithChildren, useEffect, useRef, useState } from "react";
 import { Navigate } from "react-router-dom";
 import type { Session } from "@supabase/supabase-js";
 import { requireActiveInternalProfile } from "../lib/authProfile";
@@ -9,73 +9,91 @@ function ProtectedRoute({ children }: PropsWithChildren) {
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [authorizationFailed, setAuthorizationFailed] = useState(false);
   const [loading, setLoading] = useState(true);
+  const hasHandledFailure = useRef(false);
+  const hasSignedOutAfterFailure = useRef(false);
+  const isCheckingProfile = useRef(false);
+  const isMounted = useRef(true);
 
   useEffect(() => {
-    let isMounted = true;
+    isMounted.current = true;
 
-    const loadSession = async () => {
-      const { data } = await supabase.auth.getSession();
-      if (!isMounted) {
+    const applySignedOutState = () => {
+      if (!isMounted.current) {
+        return;
+      }
+      setSession(null);
+      setIsAuthorized(false);
+      setLoading(false);
+    };
+
+    const handleProfileFailure = async () => {
+      if (!isMounted.current) {
+        return;
+      }
+      if (!hasHandledFailure.current) {
+        hasHandledFailure.current = true;
+        setAuthorizationFailed(true);
+      }
+      applySignedOutState();
+      if (!hasSignedOutAfterFailure.current) {
+        hasSignedOutAfterFailure.current = true;
+        await supabase.auth.signOut();
+      }
+    };
+
+    const validateSession = async (candidateSession: Session | null) => {
+      if (!candidateSession) {
+        hasHandledFailure.current = false;
+        hasSignedOutAfterFailure.current = false;
+        setAuthorizationFailed(false);
+        applySignedOutState();
         return;
       }
 
-      if (!data.session) {
-        setSession(null);
-        setIsAuthorized(false);
-        setAuthorizationFailed(false);
-        setLoading(false);
+      if (isCheckingProfile.current) {
         return;
+      }
+
+      isCheckingProfile.current = true;
+      if (isMounted.current) {
+        setLoading(true);
       }
 
       try {
         await requireActiveInternalProfile();
-        if (!isMounted) {
+        if (!isMounted.current) {
           return;
         }
-        setSession(data.session);
+        hasHandledFailure.current = false;
+        hasSignedOutAfterFailure.current = false;
+        setSession(candidateSession);
         setIsAuthorized(true);
         setAuthorizationFailed(false);
       } catch {
-        if (!isMounted) {
-          return;
+        await handleProfileFailure();
+      } finally {
+        isCheckingProfile.current = false;
+        if (isMounted.current) {
+          setLoading(false);
         }
-        setSession(null);
-        setIsAuthorized(false);
-        setAuthorizationFailed(true);
       }
-      setLoading(false);
     };
 
-    loadSession();
+    const loadSession = async () => {
+      const { data } = await supabase.auth.getSession();
+      await validateSession(data.session);
+    };
+
+    void loadSession();
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      if (!nextSession) {
-        setSession(null);
-        setIsAuthorized(false);
-        setAuthorizationFailed(false);
-        setLoading(false);
-        return;
-      }
-
-      void requireActiveInternalProfile()
-        .then(() => {
-          setSession(nextSession);
-          setIsAuthorized(true);
-          setAuthorizationFailed(false);
-          setLoading(false);
-        })
-        .catch(() => {
-          setSession(null);
-          setIsAuthorized(false);
-          setAuthorizationFailed(true);
-          setLoading(false);
-        });
+      void validateSession(nextSession);
     });
 
     return () => {
-      isMounted = false;
+      isMounted.current = false;
       subscription.unsubscribe();
     };
   }, []);
