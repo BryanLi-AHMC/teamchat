@@ -7,6 +7,7 @@ import {
   toConversationRoom,
   validateMessageInput,
 } from "./lib/messages";
+import { resolveCurrentProfile } from "./lib/currentProfile";
 import { supabaseAdmin } from "./lib/supabase";
 
 type SocketAuth = {
@@ -23,6 +24,14 @@ type SendPayload = {
     mimeType: string;
     size: number;
   };
+};
+
+type SocketCurrentProfile = {
+  id: string;
+  email: string;
+  display_name: string;
+  role: string;
+  is_active: boolean;
 };
 
 export function attachSocketServer(
@@ -67,7 +76,15 @@ export function attachSocketServer(
         throw new Error("Invalid auth token");
       }
 
-      socket.data.userId = data.user.id;
+      const currentProfile = await resolveCurrentProfile(supabaseAdmin, {
+        authUserId: data.user.id,
+        email: data.user.email,
+      });
+      if (!currentProfile || !currentProfile.is_active) {
+        throw new Error("Your account is not authorized for this portal.");
+      }
+
+      socket.data.currentProfile = currentProfile;
       next();
     } catch (error) {
       next(error instanceof Error ? error : new Error("Authentication failed."));
@@ -77,13 +94,13 @@ export function attachSocketServer(
   io.on("connection", (socket) => {
     socket.on("conversation:join", async (payload: { conversationId?: string }) => {
       try {
-        const userId = socket.data.userId as string | undefined;
+        const currentProfile = socket.data.currentProfile as SocketCurrentProfile | undefined;
         const conversationId = payload?.conversationId;
-        if (!userId || !conversationId) {
+        if (!currentProfile?.id || !conversationId) {
           throw new Error("conversationId is required.");
         }
 
-        await assertConversationMembership(supabaseAdmin!, userId, conversationId);
+        await assertConversationMembership(supabaseAdmin!, currentProfile.id, conversationId);
         await socket.join(toConversationRoom(conversationId));
       } catch (error) {
         socket.emit("message:error", {
@@ -102,17 +119,17 @@ export function attachSocketServer(
 
     socket.on("message:send", async (payload: SendPayload) => {
       try {
-        const userId = socket.data.userId as string | undefined;
+        const currentProfile = socket.data.currentProfile as SocketCurrentProfile | undefined;
         const conversationId = payload?.conversationId;
-        if (!userId || !conversationId) {
+        if (!currentProfile?.id || !conversationId) {
           throw new Error("conversationId is required.");
         }
 
-        await assertConversationMembership(supabaseAdmin!, userId, conversationId);
+        await assertConversationMembership(supabaseAdmin!, currentProfile.id, conversationId);
         const parsed = validateMessageInput(payload);
         const stored = await insertMessage(supabaseAdmin!, {
           conversationId,
-          senderId: userId,
+          senderId: currentProfile.id,
           body: parsed.body,
           messageType: parsed.messageType,
           attachment: parsed.attachment,

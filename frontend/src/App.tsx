@@ -457,6 +457,15 @@ function MainLayout() {
   const activeConversationIdRef = useRef<string | null>(null);
 
   useEffect(() => {
+    console.log("[chat/debug] identity-and-route", {
+      currentUserId: currentProfile?.id ?? null,
+      currentUserEmail: currentProfile?.email ?? null,
+      routeConversationId: conversationIdFromRoute ?? null,
+      selectedConversationId: activeConversation?.id ?? null,
+    });
+  }, [activeConversation?.id, conversationIdFromRoute, currentProfile?.email, currentProfile?.id]);
+
+  useEffect(() => {
     if (!selectedPetId) {
       return;
     }
@@ -577,7 +586,8 @@ function MainLayout() {
         setTypingByConversationId((existing) => {
           const currentConversationTyping = existing[nextPayload.conversationId!] ?? {};
           if (!nextPayload.typing) {
-            const { [nextPayload.userId!]: _, ...restTyping } = currentConversationTyping;
+            const restTyping = { ...currentConversationTyping };
+            delete restTyping[nextPayload.userId!];
             return {
               ...existing,
               [nextPayload.conversationId!]: restTyping,
@@ -654,9 +664,39 @@ function MainLayout() {
         return false;
       }
       const [targetUserId] = dmEntry;
-      await openDmConversation(targetUserId);
+      setSelectedUpdatesUserId(targetUserId);
+      setUnreadByConversationId((existing) => ({ ...existing, [conversationIdFromRoute]: 0 }));
+      setActiveConversation(await getConversationById(conversationIdFromRoute));
       setRestoredConversationId(conversationIdFromRoute);
       return true;
+    };
+
+    const verifyRouteConversationMembership = async () => {
+      try {
+        const [conversation, members] = await Promise.all([
+          getConversationById(conversationIdFromRoute),
+          getConversationMembers(conversationIdFromRoute),
+        ]);
+        const memberIds = members.map((member) => member.user_id);
+        const isMember = memberIds.includes(currentProfile.id);
+        console.log("[chat/debug] route-membership-check", {
+          currentUserId: currentProfile.id,
+          currentUserEmail: currentProfile.email,
+          routeConversationId: conversationIdFromRoute,
+          selectedConversationId: activeConversationIdRef.current,
+          memberIds,
+          isMember,
+        });
+        if (!isMember) {
+          throw new Error("Not a member of this conversation.");
+        }
+        setActiveConversation(conversation);
+        setUnreadByConversationId((existing) => ({ ...existing, [conversationIdFromRoute]: 0 }));
+        setRestoredConversationId(conversationIdFromRoute);
+        return true;
+      } catch {
+        return false;
+      }
     };
 
     void openKnownDm()
@@ -664,11 +704,16 @@ function MainLayout() {
         if (opened) {
           return;
         }
-        setActiveConversation(null);
-        setActiveConversationMembers([]);
-        setMessages([]);
-        setRestoredConversationId(null);
-        navigate("/", { replace: true });
+        void verifyRouteConversationMembership().then((isMember) => {
+          if (isMember) {
+            return;
+          }
+          setActiveConversation(null);
+          setActiveConversationMembers([]);
+          setMessages([]);
+          setRestoredConversationId(null);
+          navigate("/", { replace: true });
+        });
       })
       .catch(() => {
         setActiveConversation(null);

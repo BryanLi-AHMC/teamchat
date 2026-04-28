@@ -41,16 +41,25 @@ export async function assertConversationMembership(
 ) {
   const { data, error } = await supabaseAdmin
     .from("conversation_members")
-    .select("conversation_id")
+    .select("user_id")
     .eq("conversation_id", conversationId)
-    .eq("user_id", userId)
-    .maybeSingle();
+    .order("joined_at", { ascending: true });
 
   if (error) {
     throw new Error(error.message);
   }
 
-  if (!data) {
+  const memberIds = (data ?? []).map((row) => row.user_id);
+  const isMember = memberIds.includes(userId);
+
+  console.log("[membership] conversation check", {
+    conversationId,
+    currentProfileId: userId,
+    memberIds,
+    isMember,
+  });
+
+  if (!isMember) {
     throw new Error("You are not a member of this conversation.");
   }
 }

@@ -3,6 +3,7 @@ import express from "express";
 import { createServer } from "http";
 
 import { env, isAllowedOrigin } from "./config/env";
+import { authRouter } from "./routes/auth";
 import { groupsRouter } from "./routes/groups";
 import { healthRouter } from "./routes/health";
 import { messagesRouter } from "./routes/messages";
@@ -39,6 +40,7 @@ app.get("/health", (_req, res) => {
 });
 
 app.use("/api/health", healthRouter);
+app.use("/api/auth", authRouter);
 app.use("/api/messages", messagesRouter);
 app.use("/api/groups", groupsRouter);
 app.use("/api/progress", progressRouter);

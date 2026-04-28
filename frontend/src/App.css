@@ -2669,6 +2669,7 @@
 
   .team-pet-dashboard-title {
     font-size: 24px;
+    margin-bottom: 18px;
   }
 
   .team-pet-dashboard-subtitle {
@@ -2679,27 +2680,34 @@
   .team-pet-dashboard-header-actions {
     width: 100%;
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
+    grid-template-columns: 1.25fr 1fr 1fr;
+    gap: 9px;
     margin-top: 16px;
-    margin-bottom: 20px;
+    margin-bottom: 22px;
+    align-items: center;
   }
 
   .team-pet-dashboard-back,
   .logout-btn,
   .team-pet-dashboard-header-actions .team-action-button {
-    width: 100%;
-    min-height: 54px;
+    min-width: 0;
+    height: 50px;
+    min-height: 50px;
     border-radius: 26px;
-    font-size: 15px;
-    padding: 0 14px;
+    font-size: clamp(12px, 3.2vw, 15px);
+    line-height: 1.05;
+    padding: 0 10px;
     text-align: center;
+  }
+
+  .team-pet-dashboard-header-actions .team-action-button:first-child {
+    font-size: clamp(11px, 3vw, 14px);
   }
 
   .team-pet-dashboard-header-actions .team-action-button-updates {
     display: inline-flex;
-    grid-column: 1 / -1;
-    width: 100%;
+    grid-column: auto !important;
+    width: auto !important;
     position: static !important;
     transform: none !important;
     inset: auto !important;
@@ -2849,6 +2857,25 @@
     bottom: auto;
     min-height: 46px;
     border-radius: 999px;
+  }
+}
+
+@media (max-width: 390px) {
+  .team-pet-dashboard-header-actions {
+    gap: 7px;
+  }
+
+  .team-pet-dashboard-back,
+  .logout-btn,
+  .team-pet-dashboard-header-actions .team-action-button {
+    height: 48px;
+    min-height: 48px;
+    padding: 0 8px;
+    font-size: 12px;
+  }
+
+  .team-pet-dashboard-header-actions .team-action-button:first-child {
+    font-size: 11px;
   }
 }
 

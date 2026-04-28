@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { API_BASE } from "./api";
 
 export type InternalProfile = {
   id: string;
@@ -23,22 +24,34 @@ export async function getCurrentInternalProfile(): Promise<InternalProfile | nul
     throw new Error(sessionError.message);
   }
 
-  if (!session?.user?.id) {
+  if (!session?.user) {
     return null;
   }
 
-  const { data, error } = await supabase
-    .from("internal_profiles")
-    .select("id,email,display_name,role,is_active")
-    .eq("id", session.user.id)
-    .maybeSingle();
+  console.log("[auth/profile] session", {
+    authUserId: session.user.id,
+    email: session.user.email ?? null,
+  });
 
-  if (error) {
-    console.error("[profile fetch failed]", error);
-    throw new Error(error.message);
+  const response = await fetch(`${API_BASE}/api/auth/profile`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to resolve active profile (${response.status}).`);
   }
 
-  return (data as InternalProfile | null) ?? null;
+  const payload = (await response.json()) as { data?: InternalProfile };
+  const profile = payload.data ?? null;
+  console.log("[auth/profile] resolved", {
+    resolvedInternalProfileId: profile?.id ?? null,
+    email: profile?.email ?? null,
+  });
+  return profile;
 }
 
 export async function requireActiveInternalProfile(): Promise<InternalProfile> {

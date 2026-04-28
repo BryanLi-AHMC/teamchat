@@ -172,15 +172,15 @@ export function TeamPetDashboard({
             >
               Back to Dashboard
             </button>
-            <button type="button" className="logout-btn team-action-button" onClick={onLogout}>
-              Logout
-            </button>
             <button
               type="button"
               className="updates-toggle-mobile updates-toggle-mobile--dashboard team-action-button team-action-button-updates"
               onClick={onToggleUpdates}
             >
               Updates
+            </button>
+            <button type="button" className="logout-btn team-action-button" onClick={onLogout}>
+              Logout
             </button>
           </div>
         </header>
