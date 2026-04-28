@@ -178,8 +178,9 @@ function Login() {
     }
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
+      const normalizedEmail = email.trim().toLowerCase();
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
         password,
       });
 
@@ -187,6 +188,12 @@ function Login() {
         setErrorMessage(error.message || "Unable to login. Please try again.");
         return;
       }
+
+      console.log("[auth/login] sign-in success", {
+        normalizedEmail,
+        authUserId: data.user?.id ?? null,
+        sessionCreated: Boolean(data.session),
+      });
 
       await requireActiveInternalProfile();
       navigate("/", { replace: true });

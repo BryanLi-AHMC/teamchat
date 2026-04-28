@@ -17,6 +17,11 @@ type AuthenticatedRequest = Request & {
   };
 };
 
+const normalizeEmail = (email: string | null | undefined): string => email?.trim().toLowerCase() ?? "";
+
+const selectInternalProfileFields =
+  "id,email,display_name,role,is_active,xp_total,points,level,streak";
+
 async function resolveProfileFromRequest(req: Request, res: Response, next: () => void) {
   try {
     if (!supabaseAdmin) {
@@ -26,10 +31,20 @@ async function resolveProfileFromRequest(req: Request, res: Response, next: () =
 
     const authHeader = req.header("authorization");
     const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+    const hasCookieHeader = Boolean(req.header("cookie"));
+    const forwardedProto = req.header("x-forwarded-proto") ?? null;
 
     if (!token) {
-      const reason = "invalid_token";
-      console.warn("[auth/profile] forbidden", { branch: reason, authEmail: null });
+      const reason = "missing_session";
+      console.warn("[auth/profile] forbidden", {
+        branch: reason,
+        authEmail: null,
+        authUserId: null,
+        queryCount: 0,
+        activeFlags: [],
+        hasCookieHeader,
+        forwardedProto,
+      });
       res.status(403).json({
         error: "Your account is not authorized for this portal.",
         reason,
@@ -44,7 +59,12 @@ async function resolveProfileFromRequest(req: Request, res: Response, next: () =
       console.warn("[auth/profile] forbidden", {
         branch: reason,
         authEmail: null,
+        authUserId: null,
         authError: error?.message ?? null,
+        queryCount: 0,
+        activeFlags: [],
+        hasCookieHeader,
+        forwardedProto,
       });
       res.status(403).json({
         error: "Your account is not authorized for this portal.",
@@ -54,10 +74,27 @@ async function resolveProfileFromRequest(req: Request, res: Response, next: () =
       return;
     }
 
+    const authUserId = data.user.id;
     const authEmail = data.user.email?.trim() ?? "";
-    if (!authEmail) {
+    const normalizedEmail = normalizeEmail(authEmail);
+
+    console.log("[auth/login] token validated", {
+      normalizedEmail: normalizedEmail || null,
+      authUserId: authUserId ?? null,
+      tokenProvided: Boolean(token),
+      cookiePresent: hasCookieHeader,
+      forwardedProto,
+    });
+
+    if (!normalizedEmail) {
       const reason = "missing_email";
-      console.warn("[auth/profile] forbidden", { branch: reason, authEmail: null });
+      console.warn("[auth/profile] forbidden", {
+        branch: reason,
+        authEmail: null,
+        authUserId: authUserId ?? null,
+        queryCount: 0,
+        activeFlags: [],
+      });
       res.status(403).json({
         error: "Your account is not authorized for this portal.",
         reason,
@@ -66,25 +103,25 @@ async function resolveProfileFromRequest(req: Request, res: Response, next: () =
       return;
     }
 
-    const normalizedEmail = authEmail.trim().toLowerCase();
     console.log("[auth/profile] email normalization", {
       authEmail,
       normalizedEmail,
     });
 
-    const { data: profiles, error: profileLookupError } = await supabaseAdmin
+    const { data: profileById, error: profileByIdError } = await supabaseAdmin
       .from("internal_profiles")
-      .select("id,email,display_name,role,is_active,xp_total,points,level,streak")
-      .ilike("email", normalizedEmail)
-      .limit(25);
+      .select(selectInternalProfileFields)
+      .eq("id", authUserId)
+      .maybeSingle();
 
-    if (profileLookupError) {
-      const reason = "stale_portal_check_failed";
+    if (profileByIdError) {
+      const reason = "profile_lookup_failed";
       console.warn("[auth/profile] forbidden", {
         branch: reason,
         authEmail,
+        authUserId,
         normalizedEmail,
-        profileLookupError: profileLookupError.message,
+        profileLookupError: profileByIdError.message,
       });
       res.status(403).json({
         error: "Your account is not authorized for this portal.",
@@ -94,17 +131,94 @@ async function resolveProfileFromRequest(req: Request, res: Response, next: () =
       return;
     }
 
-    const profileMatches = (profiles ?? []).filter((candidate) => {
-      const candidateEmail = typeof candidate.email === "string" ? candidate.email.trim().toLowerCase() : "";
+    const { data: profilesByEmail, error: profileByEmailError } = await supabaseAdmin
+      .from("internal_profiles")
+      .select(selectInternalProfileFields)
+      .eq("email", normalizedEmail)
+      .limit(25);
+
+    if (profileByEmailError) {
+      const reason = "stale_portal_check_failed";
+      console.warn("[auth/profile] forbidden", {
+        branch: reason,
+        authEmail,
+        authUserId,
+        normalizedEmail,
+        profileLookupError: profileByEmailError.message,
+      });
+      res.status(403).json({
+        error: "Your account is not authorized for this portal.",
+        reason,
+        authEmail,
+      });
+      return;
+    }
+
+    const profileMatches = (profilesByEmail ?? []).filter((candidate) => {
+      const candidateEmail = normalizeEmail(candidate.email);
       return candidateEmail === normalizedEmail;
     });
-    const profile = profileMatches[0];
+    let profile: AuthenticatedRequest["currentProfile"] | null =
+      profileById ??
+      profileMatches.find((candidate) => candidate.id === authUserId) ??
+      profileMatches[0] ??
+      null;
+
+    if (!profile) {
+      const displayNameFromMetadata =
+        typeof data.user.user_metadata?.display_name === "string"
+          ? data.user.user_metadata.display_name.trim()
+          : "";
+      const fallbackDisplayName = normalizedEmail.split("@")[0] ?? normalizedEmail;
+
+      const { data: insertedProfile, error: insertError } = await supabaseAdmin
+        .from("internal_profiles")
+        .insert({
+          id: authUserId,
+          email: normalizedEmail,
+          display_name: displayNameFromMetadata || fallbackDisplayName,
+          role: "internal",
+          is_active: true,
+        })
+        .select(selectInternalProfileFields)
+        .maybeSingle();
+
+      if (insertError) {
+        const reason = "profile_not_found";
+        console.warn("[auth/profile] forbidden", {
+          branch: reason,
+          authEmail,
+          authUserId,
+          normalizedEmail,
+          queryCount: (profileById ? 1 : 0) + profileMatches.length,
+          activeFlags: profileMatches.map((candidate) => candidate.is_active),
+          profileAutoCreateError: insertError.message,
+        });
+        res.status(403).json({
+          error: "Your account is not authorized for this portal.",
+          reason,
+          authEmail,
+        });
+        return;
+      }
+
+      console.log("[auth/profile] auto-created internal profile", {
+        authEmail,
+        authUserId,
+        normalizedEmail,
+        profileId: insertedProfile?.id ?? null,
+        role: insertedProfile?.role ?? null,
+        is_active: insertedProfile?.is_active ?? null,
+      });
+      profile = insertedProfile ?? null;
+    }
 
     console.log("[auth/profile] profile lookup result", {
       authEmail,
+      authUserId,
       normalizedEmail,
       found: Boolean(profile),
-      candidateCount: profileMatches.length,
+      candidateCount: (profileById ? 1 : 0) + profileMatches.length,
       profileId: profile?.id ?? null,
       is_active: profile?.is_active ?? null,
       role: profile?.role ?? null,
@@ -112,7 +226,14 @@ async function resolveProfileFromRequest(req: Request, res: Response, next: () =
 
     if (!profile) {
       const reason = "profile_not_found";
-      console.warn("[auth/profile] forbidden", { branch: reason, authEmail, normalizedEmail });
+      console.warn("[auth/profile] forbidden", {
+        branch: reason,
+        authEmail,
+        authUserId,
+        normalizedEmail,
+        queryCount: (profileById ? 1 : 0) + profileMatches.length,
+        activeFlags: profileMatches.map((candidate) => candidate.is_active),
+      });
       res.status(403).json({
         error: "Your account is not authorized for this portal.",
         reason,
@@ -126,7 +247,10 @@ async function resolveProfileFromRequest(req: Request, res: Response, next: () =
       console.warn("[auth/profile] forbidden", {
         branch: reason,
         authEmail,
+        authUserId,
         normalizedEmail,
+        queryCount: (profileById ? 1 : 0) + profileMatches.length,
+        activeFlags: [profile.is_active],
         is_active: profile.is_active,
         role: profile.role,
       });

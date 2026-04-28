@@ -18,6 +18,7 @@ export type InternalProfile = {
 
 const unauthorizedMessage = "Your account is not authorized for this portal.";
 let hasLoggedProfileApiUrl = false;
+const isDev = import.meta.env.DEV;
 
 export async function getCurrentInternalProfile(): Promise<InternalProfile | null> {
   const {
@@ -53,6 +54,36 @@ export async function getCurrentInternalProfile(): Promise<InternalProfile | nul
   });
 
   if (!response.ok) {
+    const errorPayload = (await response.json().catch(() => null)) as
+      | {
+        reason?: string;
+        error?: string;
+        authEmail?: string | null;
+      }
+      | null;
+
+    const reason = errorPayload?.reason ?? "unknown";
+    if (response.status === 403 && isDev) {
+      console.warn("[auth/profile] 403 forbidden", {
+        reason,
+        authEmail: errorPayload?.authEmail ?? null,
+      });
+    }
+
+    if (response.status === 403) {
+      if (reason === "profile_not_found") {
+        throw new Error(
+          "Your account is signed in but no internal profile exists yet. Contact an admin if this persists."
+        );
+      }
+      if (reason === "profile_inactive") {
+        throw new Error("Your internal profile is inactive. Contact an admin for access.");
+      }
+      if (reason === "missing_session" || reason === "invalid_token") {
+        throw new Error("Your session is missing or expired. Please sign in again.");
+      }
+    }
+
     throw new Error(`Failed to resolve active profile (${response.status}).`);
   }
 
