@@ -9,6 +9,7 @@
   gap: 18px;
   padding: 24px;
   position: relative;
+  isolation: isolate;
   overflow: hidden;
   font-family: "Fredoka", system-ui, sans-serif;
   background:
@@ -18,8 +19,15 @@
     #f7f2ff;
 }
 
-.login-page::before,
-.login-page::after {
+.login-gradient-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.login-gradient-backdrop::before,
+.login-gradient-backdrop::after {
   content: "";
   position: absolute;
   z-index: 0;
@@ -27,7 +35,7 @@
   filter: blur(14px);
 }
 
-.login-page::before {
+.login-gradient-backdrop::before {
   width: 320px;
   height: 320px;
   top: -70px;
@@ -36,7 +44,7 @@
   background: rgba(124, 58, 237, 0.14);
 }
 
-.login-page::after {
+.login-gradient-backdrop::after {
   width: 280px;
   height: 280px;
   right: -45px;
@@ -47,7 +55,7 @@
 
 .login-brand {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   text-align: center;
   color: #2f2638;
 }
@@ -62,6 +70,7 @@
 
 .login-card-orbit-shell {
   position: relative;
+  z-index: 2;
   --login-card-width: 430px;
   --pet-size: 56px;
   --orbit-gap: 18px;
@@ -74,20 +83,26 @@
 
 .login-card {
   position: relative;
-  z-index: 2;
+  z-index: 5;
   width: 100%;
   border-radius: 28px;
   border: 1px solid rgba(124, 58, 237, 0.16);
-  background: rgba(255, 255, 255, 0.86);
+  background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
   padding: 36px 38px;
   box-shadow: 0 24px 70px rgba(86, 56, 130, 0.16);
+}
+
+.login-card > * {
+  position: relative;
+  z-index: 6;
 }
 
 .pets-orbit-layer {
   position: absolute;
   inset: 0;
-  z-index: 4;
+  z-index: 3;
   pointer-events: none;
   overflow: visible;
 }
@@ -150,6 +165,8 @@
 }
 
 .login-form button {
+  position: relative;
+  z-index: 7;
   margin-top: 12px;
   border: 0;
   height: 54px;
@@ -220,6 +237,15 @@
   .login-card {
     border-radius: 24px;
     padding: 30px 24px 28px;
+    background: rgba(255, 255, 255, 0.94);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+
+  .login-gradient-backdrop::after {
+    opacity: 0.58;
+    filter: blur(12px);
+    bottom: -90px;
   }
 
   .login-title {
@@ -256,5 +282,10 @@
 
   .login-card {
     padding: 28px 20px 24px;
+  }
+
+  .login-gradient-backdrop::after {
+    opacity: 0.5;
+    filter: blur(10px);
   }
 }

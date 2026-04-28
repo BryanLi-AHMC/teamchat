@@ -11,5 +11,12 @@ export const env = {
   port: toNumber(process.env.PORT, 3003),
   supabaseUrl: process.env.SUPABASE_URL ?? "",
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
-  frontendOrigin: process.env.FRONTEND_ORIGIN ?? "http://localhost:5173",
+  frontendOrigins: (
+    process.env.FRONTEND_ORIGINS ??
+    process.env.FRONTEND_ORIGIN ??
+    "http://localhost:5173,http://localhost:5177"
+  )
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
 };

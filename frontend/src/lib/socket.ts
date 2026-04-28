@@ -35,12 +35,26 @@ type ClientToServerEvents = {
 };
 
 let socket: Socket<ServerToClientEvents, ClientToServerEvents> | null = null;
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:3003";
 
 export function getSocketClient(accessToken: string) {
   if (!socket) {
-    socket = io(import.meta.env.VITE_SOCKET_URL ?? "http://localhost:3002", {
+    socket = io(SOCKET_URL, {
       autoConnect: false,
+      auth: {
+        token: accessToken,
+      },
       transports: ["websocket", "polling"],
+      withCredentials: true,
+    });
+    socket.on("connect", () => {
+      console.log("[socket] connected", socket?.id, SOCKET_URL);
+    });
+    socket.on("connect_error", (error) => {
+      console.error("[socket] connect_error", error.message, SOCKET_URL);
+    });
+    socket.on("disconnect", (reason) => {
+      console.warn("[socket] disconnected", reason);
     });
   }
   socket.auth = { token: accessToken };
@@ -53,5 +67,6 @@ export function getSocketClient(accessToken: string) {
 export function disconnectSocketClient() {
   if (socket) {
     socket.disconnect();
+    socket = null;
   }
 }

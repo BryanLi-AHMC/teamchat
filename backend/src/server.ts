@@ -14,7 +14,7 @@ const PORT = env.port;
 
 app.use(
   cors({
-    origin: env.frontendOrigin,
+    origin: env.frontendOrigins,
     credentials: true,
   })
 );
@@ -39,7 +39,7 @@ app.use("/api/groups", groupsRouter);
 app.use("/api/progress", progressRouter);
 
 const httpServer = createServer(app);
-attachSocketServer(httpServer, env.frontendOrigin);
+attachSocketServer(httpServer, env.frontendOrigins);
 
 httpServer.listen(PORT, () => {
   console.log("=== TEAMCHAT BACKEND STARTED ===");

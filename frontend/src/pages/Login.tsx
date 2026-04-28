@@ -214,6 +214,7 @@ function Login() {
 
   return (
     <div className="login-page">
+      <div className="login-gradient-backdrop" aria-hidden="true" />
       <div className="login-brand">
         <p className="login-brand-title">AIBuddy</p>
       </div>

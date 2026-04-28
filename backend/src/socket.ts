@@ -25,10 +25,10 @@ type SendPayload = {
   };
 };
 
-export function attachSocketServer(httpServer: HttpServer, frontendOrigin: string) {
+export function attachSocketServer(httpServer: HttpServer, frontendOrigins: string[]) {
   const io = new Server(httpServer, {
     cors: {
-      origin: frontendOrigin,
+      origin: frontendOrigins,
       credentials: true,
     },
   });
