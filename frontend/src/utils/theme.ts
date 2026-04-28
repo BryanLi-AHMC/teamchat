@@ -14,6 +14,12 @@ export function getThemeById(themeId: string): ThemePalette {
 export function getThemeCssVars(themeId: string): CSSProperties {
   const t = getThemeById(themeId);
   return {
+    "--tc-primary": t.accent,
+    "--tc-primary-hover": t.accentHover,
+    "--tc-primary-soft": t.softBg,
+    "--tc-primary-soft-2": t.subtleBg,
+    "--tc-primary-border": t.border,
+    "--tc-primary-text": t.text,
     "--teamchat-accent": t.accent,
     "--teamchat-accent-hover": t.accentHover,
     "--teamchat-soft-bg": t.softBg,

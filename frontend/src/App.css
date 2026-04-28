@@ -22,13 +22,15 @@
 }
 
 .app-shell {
-  --teamchat-accent: var(--tc-purple);
-  --teamchat-accent-hover: #7c35f2;
-  --teamchat-soft-bg: rgba(139, 63, 246, 0.12);
-  --teamchat-subtle-bg: rgba(139, 63, 246, 0.08);
-  --teamchat-border: var(--tc-border-soft);
-  --teamchat-glow: rgba(139, 63, 246, 0.18);
-  --teamchat-text: var(--tc-text-main);
+  --teamchat-accent: var(--tc-primary);
+  --teamchat-accent-hover: var(--tc-primary-hover);
+  --teamchat-soft-bg: var(--tc-primary-soft);
+  --teamchat-subtle-bg: var(--tc-primary-soft-2);
+  --teamchat-border: var(--tc-primary-border);
+  --teamchat-glow: color-mix(in srgb, var(--tc-primary) 22%, transparent);
+  --teamchat-text: var(--tc-primary-text);
+  --tc-border-soft: var(--tc-primary-border);
+  --tc-shadow-soft: 0 18px 45px color-mix(in srgb, var(--tc-primary) 14%, transparent);
   --teamchat-gradient: linear-gradient(135deg, rgba(124, 58, 237, 0.12), rgba(236, 72, 153, 0.08));
   --map-pet-size: 112px;
   --map-leader-pet-size: 148px;
@@ -362,7 +364,7 @@
 
 .sidebar-search {
   width: 100%;
-  border: 2px solid rgba(169, 119, 255, 0.22);
+  border: 2px solid var(--teamchat-border);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.82);
   color: var(--tc-text-main);
@@ -373,8 +375,8 @@
 
 .sidebar-search:focus-visible {
   outline: none;
-  border-color: rgba(139, 63, 246, 0.42);
-  box-shadow: 0 0 0 4px rgba(139, 63, 246, 0.1);
+  border-color: color-mix(in srgb, var(--teamchat-accent) 42%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--teamchat-accent) 10%, transparent);
 }
 
 .sidebar-sections section {
@@ -444,15 +446,15 @@
 }
 
 .sidebar-item:hover {
-  border-color: rgba(139, 63, 246, 0.24);
-  background: rgba(234, 220, 255, 0.6);
+  border-color: color-mix(in srgb, var(--teamchat-accent) 24%, transparent);
+  background: color-mix(in srgb, var(--teamchat-soft-bg) 72%, #ffffff);
   transform: translateY(-1px);
 }
 
 .sidebar-item-active {
-  border-color: rgba(139, 63, 246, 0.42);
-  background: rgba(234, 220, 255, 0.72);
-  box-shadow: 0 8px 18px rgba(139, 63, 246, 0.12);
+  border-color: color-mix(in srgb, var(--teamchat-accent) 42%, transparent);
+  background: color-mix(in srgb, var(--teamchat-soft-bg) 85%, #ffffff);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--teamchat-accent) 12%, transparent);
 }
 
 .unread-badge {
@@ -479,13 +481,13 @@
 .new-group-button {
   border: none;
   border-radius: 14px;
-  background: linear-gradient(135deg, #7c35f2 0%, #b650f5 100%);
+  background: linear-gradient(135deg, var(--teamchat-accent) 0%, var(--teamchat-accent-hover) 100%);
   color: #fff;
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
   padding: 7px 12px;
-  box-shadow: 0 10px 20px rgba(139, 63, 246, 0.2);
+  box-shadow: 0 10px 20px color-mix(in srgb, var(--teamchat-accent) 20%, transparent);
 }
 
 .chat-panel {
@@ -649,7 +651,9 @@
 .pet-option.pet-option--selected {
   width: 66px;
   height: 66px;
-  box-shadow: 0 0 0 3px rgba(139, 63, 246, 0.22), 0 10px 24px rgba(139, 63, 246, 0.16);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--teamchat-accent) 22%, transparent),
+    0 10px 24px color-mix(in srgb, var(--teamchat-accent) 16%, transparent);
 }
 
 .team-color-section {
@@ -696,16 +700,16 @@
   right: 32px;
   border: none;
   border-radius: 16px;
-  background: linear-gradient(135deg, #7c35f2 0%, #b650f5 100%) !important;
+  background: linear-gradient(135deg, var(--teamchat-accent) 0%, var(--teamchat-accent-hover) 100%) !important;
   color: #fff;
   font-weight: 700;
-  box-shadow: 0 12px 26px rgba(139, 63, 246, 0.24);
+  box-shadow: 0 12px 26px color-mix(in srgb, var(--teamchat-accent) 24%, transparent);
   transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
 }
 
 .identity-bar-save:hover {
   transform: translateY(-1px);
-  box-shadow: 0 16px 34px rgba(139, 63, 246, 0.28);
+  box-shadow: 0 16px 34px color-mix(in srgb, var(--teamchat-accent) 28%, transparent);
   filter: brightness(1.02);
 }
 
@@ -824,7 +828,7 @@
   width: 100%;
   resize: vertical;
   min-height: 70px;
-  border: 2px solid rgba(169, 119, 255, 0.22);
+  border: 2px solid var(--teamchat-border);
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.82);
   color: var(--tc-text-main);
@@ -834,26 +838,26 @@
 
 .updates-composer textarea:focus-visible {
   outline: none;
-  border-color: rgba(139, 63, 246, 0.42);
-  box-shadow: 0 0 0 4px rgba(139, 63, 246, 0.1);
+  border-color: color-mix(in srgb, var(--teamchat-accent) 42%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--teamchat-accent) 10%, transparent);
 }
 
 .updates-composer button {
   justify-self: end;
   border: none;
   border-radius: 16px;
-  background: linear-gradient(135deg, #7c35f2 0%, #b650f5 100%);
+  background: linear-gradient(135deg, var(--teamchat-accent) 0%, var(--teamchat-accent-hover) 100%);
   color: #fff;
   font-weight: 700;
   padding: 8px 15px;
   cursor: pointer;
-  box-shadow: 0 12px 26px rgba(139, 63, 246, 0.24);
+  box-shadow: 0 12px 26px color-mix(in srgb, var(--teamchat-accent) 24%, transparent);
   transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
 }
 
 .updates-composer button:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 16px 34px rgba(139, 63, 246, 0.28);
+  box-shadow: 0 16px 34px color-mix(in srgb, var(--teamchat-accent) 28%, transparent);
   filter: brightness(1.02);
 }
 
@@ -877,7 +881,7 @@
   border: none;
   border-radius: 999px;
   padding: 8px 10px;
-  background: rgba(234, 220, 255, 0.86);
+  background: color-mix(in srgb, var(--teamchat-soft-bg) 86%, #ffffff);
   color: var(--teamchat-accent);
   display: flex;
   justify-content: space-between;
@@ -964,7 +968,7 @@
   padding: 0;
   font-size: 12px;
   font-weight: 500;
-  color: #7c35f2;
+  color: var(--teamchat-accent);
   cursor: pointer;
 }
 
@@ -977,18 +981,18 @@
 }
 
 .timeline-delete {
-  border: 1px solid rgba(139, 63, 246, 0.2);
+  border: 1px solid color-mix(in srgb, var(--teamchat-accent) 20%, transparent);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.74);
   padding: 4px 10px;
   font-size: 12px;
-  color: #7c35f2;
+  color: var(--teamchat-accent);
   font-weight: 500;
   cursor: pointer;
 }
 
 .timeline-delete:hover {
-  background: rgba(234, 220, 255, 0.62);
+  background: color-mix(in srgb, var(--teamchat-soft-bg) 70%, #ffffff);
 }
 
 .updates-toggle-mobile {
@@ -1026,10 +1030,10 @@
 }
 
 .group-info-button {
-  border: 1px solid rgba(124, 53, 242, 0.2);
+  border: 1px solid color-mix(in srgb, var(--teamchat-accent) 20%, transparent);
   border-radius: 999px;
   background: #fff;
-  color: #7c35f2;
+  color: var(--teamchat-accent);
   font-size: 13px;
   font-weight: 600;
   height: 36px;
@@ -1040,7 +1044,7 @@
 }
 
 .group-info-button:hover {
-  background: rgba(124, 53, 242, 0.08);
+  background: color-mix(in srgb, var(--teamchat-accent) 8%, #ffffff);
 }
 
 .message-list {
@@ -1163,7 +1167,7 @@
 
 .message-attachment-link {
   font-size: 12px;
-  color: #7c35f2;
+  color: var(--teamchat-accent);
   text-decoration: none;
   font-weight: 600;
 }
@@ -1457,10 +1461,10 @@
 }
 
 .back-to-dashboard-button {
-  border: 1px solid rgba(124, 53, 242, 0.25);
+  border: 1px solid color-mix(in srgb, var(--teamchat-accent) 25%, transparent);
   border-radius: 999px;
   background: #fff;
-  color: #7c35f2;
+  color: var(--teamchat-accent);
   font-weight: 600;
   font-size: 13px;
   height: 36px;
@@ -1471,7 +1475,7 @@
 }
 
 .back-to-dashboard-button:hover {
-  background: rgba(124, 53, 242, 0.08);
+  background: color-mix(in srgb, var(--teamchat-accent) 8%, #ffffff);
 }
 
 .updates-header-button {
@@ -1543,10 +1547,10 @@
 }
 
 .team-pet-dashboard-header-actions .team-action-button {
-  border: 2px solid rgba(126, 63, 242, 0.24);
+  border: 2px solid color-mix(in srgb, var(--teamchat-accent) 24%, transparent);
   border-radius: 28px;
   background: rgba(255, 255, 255, 0.92);
-  color: #7e3ff2;
+  color: var(--teamchat-accent);
   font-weight: 800;
   min-height: 58px;
   padding: 0 18px;
@@ -1555,11 +1559,11 @@
   justify-content: center;
   text-align: center;
   white-space: nowrap;
-  box-shadow: 0 10px 24px rgba(126, 63, 242, 0.08);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--teamchat-accent) 8%, transparent);
 }
 
 .team-pet-dashboard-header-actions .team-action-button:hover {
-  background: color-mix(in srgb, rgba(255, 255, 255, 0.92) 76%, rgba(234, 220, 255, 0.8));
+  background: color-mix(in srgb, rgba(255, 255, 255, 0.92) 76%, var(--teamchat-soft-bg));
 }
 
 .updates-toggle-mobile--dashboard {
@@ -1583,17 +1587,17 @@
 }
 
 .team-pet-dashboard-back {
-  border: 2px solid rgba(126, 63, 242, 0.24);
+  border: 2px solid color-mix(in srgb, var(--teamchat-accent) 24%, transparent);
   border-radius: 28px;
   background: rgba(255, 255, 255, 0.92);
-  color: #7e3ff2;
+  color: var(--teamchat-accent);
   min-height: 58px;
   font-size: 16px;
   font-weight: 800;
   cursor: pointer;
   text-decoration: none;
   padding: 0 18px;
-  box-shadow: 0 10px 24px rgba(126, 63, 242, 0.08);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--teamchat-accent) 8%, transparent);
 }
 
 .team-pet-dashboard-back:hover {
@@ -1605,29 +1609,29 @@
 }
 
 .team-pet-dashboard-back--quiet:hover {
-  color: #7e3ff2;
-  background: color-mix(in srgb, rgba(255, 255, 255, 0.92) 76%, rgba(234, 220, 255, 0.8));
+  color: var(--teamchat-accent);
+  background: color-mix(in srgb, rgba(255, 255, 255, 0.92) 76%, var(--teamchat-soft-bg));
   opacity: 1;
 }
 
 .logout-btn {
-  border: 2px solid rgba(126, 63, 242, 0.24);
+  border: 2px solid color-mix(in srgb, var(--teamchat-accent) 24%, transparent);
   border-radius: 28px;
   background: rgba(255, 255, 255, 0.92);
-  color: #7e3ff2;
+  color: var(--teamchat-accent);
   padding: 0 18px;
   min-height: 58px;
   font-size: 16px;
   font-weight: 800;
   cursor: pointer;
-  box-shadow: 0 10px 24px rgba(126, 63, 242, 0.08);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--teamchat-accent) 8%, transparent);
   transition: transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
 }
 
 .logout-btn:hover {
   transform: translateY(-1px);
   box-shadow: 0 12px 22px rgba(116, 72, 180, 0.12);
-  background: color-mix(in srgb, rgba(255, 255, 255, 0.92) 76%, rgba(234, 220, 255, 0.8));
+  background: color-mix(in srgb, rgba(255, 255, 255, 0.92) 76%, var(--teamchat-soft-bg));
 }
 
 .team-pet-dashboard-map-area {
@@ -1864,7 +1868,7 @@
 .team-pet-map-pin-label {
   font-size: 12px;
   font-weight: 600;
-  color: #7c35f2;
+  color: var(--teamchat-accent);
   line-height: 1.25;
   padding: 5px 10px;
   border-radius: 999px;
@@ -1895,7 +1899,7 @@
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: #7c35f2;
+  color: var(--teamchat-accent);
   padding: 2px 8px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.92);
@@ -2456,11 +2460,11 @@
     bottom: 16px;
     border: none;
     border-radius: 999px;
-    background: linear-gradient(135deg, #7c35f2 0%, #b650f5 100%);
+    background: linear-gradient(135deg, var(--teamchat-accent) 0%, var(--teamchat-accent-hover) 100%);
     color: #fff;
     padding: 10px 14px;
     font-weight: 700;
-    box-shadow: 0 12px 26px rgba(139, 63, 246, 0.24);
+    box-shadow: 0 12px 26px color-mix(in srgb, var(--teamchat-accent) 24%, transparent);
     z-index: 16;
     cursor: pointer;
   }
@@ -2551,9 +2555,9 @@
     min-height: 46px;
     padding: 0 22px;
     border-radius: 999px;
-    background: linear-gradient(135deg, #7c35f2 0%, #b650f5 100%);
+    background: linear-gradient(135deg, var(--teamchat-accent) 0%, var(--teamchat-accent-hover) 100%);
     color: #fff;
-    box-shadow: 0 14px 28px rgba(139, 63, 246, 0.28);
+    box-shadow: 0 14px 28px color-mix(in srgb, var(--teamchat-accent) 28%, transparent);
   }
 
   .updates-toggle-mobile--dashboard {
@@ -2561,11 +2565,11 @@
     inset: auto;
     transform: none;
     z-index: auto;
-    box-shadow: 0 10px 24px rgba(126, 63, 242, 0.08);
-    border: 2px solid rgba(126, 63, 242, 0.24);
+    box-shadow: 0 10px 24px color-mix(in srgb, var(--teamchat-accent) 8%, transparent);
+    border: 2px solid color-mix(in srgb, var(--teamchat-accent) 24%, transparent);
     border-radius: 28px;
     background: rgba(255, 255, 255, 0.92);
-    color: #7e3ff2;
+    color: var(--teamchat-accent);
     min-height: 58px;
     padding: 0 18px;
   }
@@ -2713,8 +2717,8 @@
     inset: auto !important;
     margin: 0;
     background: rgba(255, 255, 255, 0.92);
-    color: #7e3ff2;
-    border: 2px solid rgba(126, 63, 242, 0.24);
+    color: var(--teamchat-accent);
+    border: 2px solid color-mix(in srgb, var(--teamchat-accent) 24%, transparent);
   }
 
   .dashboard-map-stage {

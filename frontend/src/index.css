@@ -8,6 +8,12 @@
   --tc-purple: #8b3ff6;
   --tc-purple-light: #b35cff;
   --tc-purple-soft: #eadcff;
+  --tc-primary: #8b5cf6;
+  --tc-primary-hover: #7c3aed;
+  --tc-primary-soft: rgba(139, 92, 246, 0.12);
+  --tc-primary-soft-2: rgba(139, 92, 246, 0.18);
+  --tc-primary-border: rgba(139, 92, 246, 0.35);
+  --tc-primary-text: #6d28d9;
   --tc-card-bg: rgba(255, 255, 255, 0.92);
   --tc-border-soft: rgba(169, 119, 255, 0.22);
   --tc-shadow-soft: 0 18px 45px rgba(116, 72, 180, 0.14);

@@ -160,8 +160,8 @@
 
 .login-form input:focus-visible {
   outline: none;
-  border-color: #7c3aed;
-  box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.1);
+  border-color: var(--tc-primary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--tc-primary) 10%, transparent);
 }
 
 .login-form button {
@@ -171,7 +171,7 @@
   border: 0;
   height: 54px;
   border-radius: 18px;
-  background: linear-gradient(135deg, #7c3aed, #a855f7);
+  background: linear-gradient(135deg, var(--tc-primary), var(--tc-primary-hover));
   color: #ffffff;
   font: inherit;
   font-weight: 700;
@@ -180,12 +180,12 @@
   padding: 0 16px;
   cursor: pointer;
   transition: transform 140ms ease, box-shadow 160ms ease, filter 140ms ease;
-  box-shadow: 0 12px 26px rgba(124, 58, 237, 0.24);
+  box-shadow: 0 12px 26px color-mix(in srgb, var(--tc-primary) 24%, transparent);
 }
 
 .login-form button:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 16px 30px rgba(124, 58, 237, 0.3);
+  box-shadow: 0 16px 30px color-mix(in srgb, var(--tc-primary) 30%, transparent);
 }
 
 .login-form button:active:not(:disabled) {
@@ -195,7 +195,7 @@
 .login-form button:disabled {
   opacity: 0.72;
   cursor: not-allowed;
-  box-shadow: 0 8px 18px rgba(124, 58, 237, 0.16);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--tc-primary) 16%, transparent);
 }
 
 .login-error {
