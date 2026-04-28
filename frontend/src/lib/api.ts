@@ -1,5 +1,4 @@
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3003/api";
+export const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:3003";
 
 type RequestOptions = {
   method?: "GET" | "POST";
@@ -10,7 +9,11 @@ export async function apiRequest<T>(
   path: string,
   options: RequestOptions = {}
 ): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const normalizedPath = path.startsWith("/api/")
+    ? path
+    : `/api${path.startsWith("/") ? path : `/${path}`}`;
+
+  const response = await fetch(`${API_BASE}${normalizedPath}`, {
     method: options.method ?? "GET",
     headers: {
       "Content-Type": "application/json",
@@ -25,5 +28,3 @@ export async function apiRequest<T>(
 
   return (await response.json()) as T;
 }
-
-export { API_BASE_URL };
