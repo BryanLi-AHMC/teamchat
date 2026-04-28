@@ -2,7 +2,7 @@ import cors from "cors";
 import express from "express";
 import { createServer } from "http";
 
-import { env } from "./config/env";
+import { env, isAllowedOrigin } from "./config/env";
 import { groupsRouter } from "./routes/groups";
 import { healthRouter } from "./routes/health";
 import { messagesRouter } from "./routes/messages";
@@ -14,7 +14,12 @@ const PORT = env.port;
 
 app.use(
   cors({
-    origin: env.frontendOrigins,
+    origin(origin, callback) {
+      if (isAllowedOrigin(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error(`CORS blocked origin: ${origin}`));
+    },
     credentials: true,
   })
 );
@@ -39,10 +44,11 @@ app.use("/api/groups", groupsRouter);
 app.use("/api/progress", progressRouter);
 
 const httpServer = createServer(app);
-attachSocketServer(httpServer, env.frontendOrigins);
+attachSocketServer(httpServer, isAllowedOrigin);
 
 httpServer.listen(PORT, () => {
   console.log("=== TEAMCHAT BACKEND STARTED ===");
   console.log("Port:", PORT);
   console.log("Environment:", process.env.NODE_ENV || "development");
+  console.log("[cors] allowed frontend origins:", env.frontendOrigins);
 });

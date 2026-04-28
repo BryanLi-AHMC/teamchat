@@ -40,7 +40,7 @@ npm run dev
 PORT=3003
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
-FRONTEND_ORIGIN=http://localhost:5173
+FRONTEND_ORIGINS=http://localhost:5173,http://localhost:5177,https://teamchat-cr5.pages.dev,https://teamchat.pages.dev,https://teamchat.wanpanel.ai
 ```
 
 ### Frontend (`frontend/.env`)

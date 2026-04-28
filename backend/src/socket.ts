@@ -25,10 +25,18 @@ type SendPayload = {
   };
 };
 
-export function attachSocketServer(httpServer: HttpServer, frontendOrigins: string[]) {
+export function attachSocketServer(
+  httpServer: HttpServer,
+  isAllowedOrigin: (origin: string | undefined) => boolean
+) {
   const io = new Server(httpServer, {
     cors: {
-      origin: frontendOrigins,
+      origin(origin, callback) {
+        if (isAllowedOrigin(origin)) {
+          return callback(null, true);
+        }
+        return callback(new Error(`Socket CORS blocked origin: ${origin}`));
+      },
       credentials: true,
     },
   });
