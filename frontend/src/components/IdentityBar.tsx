@@ -52,7 +52,6 @@ export function IdentityBar({
       <div className="identity-bar-panel w-full max-w-full">
         <div className="identity-bar-header min-w-0">
           <p className="identity-bar-title">Choose Your Identity</p>
-          <p className="identity-bar-subtitle">Pick your pet and team color</p>
         </div>
         {onSave ? (
           <button
