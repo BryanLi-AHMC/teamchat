@@ -1,7 +1,6 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 
-import { resolveCurrentProfile } from "../lib/currentProfile";
 import { supabaseAdmin } from "../lib/supabase";
 
 type AuthenticatedRequest = Request & {
@@ -25,37 +24,106 @@ async function resolveProfileFromRequest(req: Request, res: Response, next: () =
     const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
 
     if (!token) {
-      console.warn("[auth/profile] forbidden: missing Authorization header");
-      res.status(403).json({ error: "Missing bearer token." });
+      const reason = "invalid_token";
+      console.warn("[auth/profile] forbidden", { branch: reason, authEmail: null });
+      res.status(403).json({
+        error: "Your account is not authorized for this portal.",
+        reason,
+        authEmail: null,
+      });
       return;
     }
 
     const { data, error } = await supabaseAdmin.auth.getUser(token);
     if (error || !data.user) {
-      console.warn("[auth/profile] forbidden: invalid token");
-      res.status(403).json({ error: "Invalid auth token." });
+      const reason = "invalid_token";
+      console.warn("[auth/profile] forbidden", {
+        branch: reason,
+        authEmail: null,
+        authError: error?.message ?? null,
+      });
+      res.status(403).json({
+        error: "Your account is not authorized for this portal.",
+        reason,
+        authEmail: null,
+      });
       return;
     }
 
-    if (!data.user.email) {
-      console.warn("[auth/profile] forbidden: missing auth email");
-      res.status(403).json({ error: "Missing auth email." });
+    const authEmail = data.user.email?.trim() ?? "";
+    if (!authEmail) {
+      const reason = "missing_email";
+      console.warn("[auth/profile] forbidden", { branch: reason, authEmail: null });
+      res.status(403).json({
+        error: "Your account is not authorized for this portal.",
+        reason,
+        authEmail: null,
+      });
       return;
     }
 
-    const profile = await resolveCurrentProfile(supabaseAdmin, {
-      email: data.user.email,
+    const normalizedEmail = authEmail.toLowerCase();
+    console.log("[auth/profile] email normalization", {
+      authEmail,
+      normalizedEmail,
+    });
+
+    const { data: profile, error: profileLookupError } = await supabaseAdmin
+      .from("internal_profiles")
+      .select("id,email,display_name,role,is_active")
+      .ilike("email", normalizedEmail)
+      .maybeSingle();
+
+    if (profileLookupError) {
+      const reason = "stale_portal_check_failed";
+      console.warn("[auth/profile] forbidden", {
+        branch: reason,
+        authEmail,
+        normalizedEmail,
+        profileLookupError: profileLookupError.message,
+      });
+      res.status(403).json({
+        error: "Your account is not authorized for this portal.",
+        reason,
+        authEmail,
+      });
+      return;
+    }
+
+    console.log("[auth/profile] profile lookup result", {
+      authEmail,
+      normalizedEmail,
+      found: Boolean(profile),
+      profileId: profile?.id ?? null,
+      is_active: profile?.is_active ?? null,
+      role: profile?.role ?? null,
     });
 
     if (!profile) {
-      console.warn("[auth/profile] forbidden: no matching internal_profiles row");
-      res.status(403).json({ error: "Your account is not authorized for this portal." });
+      const reason = "profile_not_found";
+      console.warn("[auth/profile] forbidden", { branch: reason, authEmail, normalizedEmail });
+      res.status(403).json({
+        error: "Your account is not authorized for this portal.",
+        reason,
+        authEmail,
+      });
       return;
     }
 
     if (!profile.is_active) {
-      console.warn("[auth/profile] forbidden: inactive profile");
-      res.status(403).json({ error: "Your account is not authorized for this portal." });
+      const reason = "profile_inactive";
+      console.warn("[auth/profile] forbidden", {
+        branch: reason,
+        authEmail,
+        normalizedEmail,
+        is_active: profile.is_active,
+        role: profile.role,
+      });
+      res.status(403).json({
+        error: "Your account is not authorized for this portal.",
+        reason,
+        authEmail,
+      });
       return;
     }
 
