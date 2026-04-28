@@ -996,8 +996,9 @@
 }
 
 .panel-header {
-  padding: 16px 24px;
-  border-bottom: 1px solid #ece8f1;
+  min-height: 72px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #eee;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1025,24 +1026,27 @@
 }
 
 .group-info-button {
-  border: 1.5px solid rgba(139, 63, 246, 0.22);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid rgba(124, 53, 242, 0.2);
+  border-radius: 999px;
+  background: #fff;
   color: #7c35f2;
-  font-weight: 700;
-  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  height: 36px;
+  padding: 0 14px;
   cursor: pointer;
-  box-shadow: 0 8px 18px rgba(116, 72, 180, 0.08);
+  box-shadow: none;
+  white-space: nowrap;
 }
 
 .group-info-button:hover {
-  background: rgba(234, 220, 255, 0.45);
+  background: rgba(124, 53, 242, 0.08);
 }
 
 .message-list {
   flex: 1;
   min-height: 0;
-  padding: 24px;
+  padding: 20px 16px;
   overflow: auto;
   display: flex;
   flex-direction: column;
@@ -1223,10 +1227,12 @@
 
 .chat-input-bar {
   flex-shrink: 0;
-  border-top: 1px solid #ece8f1;
-  padding: 16px 24px;
+  border-top: 1px solid #eee;
+  padding: 10px 16px;
+  min-height: 60px;
   display: flex;
-  gap: 12px;
+  gap: 8px;
+  align-items: center;
   background: #fff;
 }
 
@@ -1331,34 +1337,39 @@
 
 .chat-input-bar textarea {
   width: 100%;
-  min-height: 44px;
+  min-height: 42px;
+  height: 42px;
   max-height: 140px;
   resize: vertical;
-  border: 1px solid var(--teamchat-border);
-  border-radius: 8px;
+  border: 1px solid #eee;
+  border-radius: 14px;
   padding: 10px 12px;
   font: inherit;
 }
 
 .chat-input-bar .emoji-toggle {
-  border: 1px solid var(--teamchat-border);
+  border: 1px solid #eee;
   background: #fff;
   color: var(--teamchat-accent);
-  border-radius: 8px;
+  border-radius: 12px;
   width: 40px;
+  height: 40px;
   min-width: 40px;
-  font-size: 18px;
+  font-size: 16px;
+  line-height: 1;
   cursor: pointer;
 }
 
 .chat-input-bar .attachment-toggle {
-  border: 1px solid var(--teamchat-border);
+  border: 1px solid #eee;
   background: #fff;
   color: var(--teamchat-accent);
-  border-radius: 8px;
+  border-radius: 12px;
   width: 40px;
+  height: 40px;
   min-width: 40px;
-  font-size: 18px;
+  font-size: 16px;
+  line-height: 1;
   cursor: pointer;
 }
 
@@ -1401,10 +1412,13 @@
   border: 1px solid var(--teamchat-accent);
   background: var(--teamchat-accent);
   color: #fff;
-  border-radius: 8px;
-  padding: 0 18px;
+  border-radius: 14px;
+  height: 42px;
+  padding: 0 20px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  box-shadow: none;
 }
 
 .chat-input-bar button:not(.emoji-toggle):not(.attachment-toggle):hover:not(:disabled) {
@@ -1443,20 +1457,43 @@
 }
 
 .back-to-dashboard-button {
-  border: 1.5px solid rgba(139, 63, 246, 0.22);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid rgba(124, 53, 242, 0.25);
+  border-radius: 999px;
+  background: #fff;
   color: #7c35f2;
-  font-weight: 700;
-  font-size: 12px;
-  padding: 7px 12px;
+  font-weight: 600;
+  font-size: 13px;
+  height: 36px;
+  padding: 0 14px;
   cursor: pointer;
-  box-shadow: 0 8px 18px rgba(116, 72, 180, 0.08);
+  box-shadow: none;
+  white-space: nowrap;
 }
 
 .back-to-dashboard-button:hover {
-  background: rgba(234, 220, 255, 0.45);
-  box-shadow: 0 12px 22px rgba(116, 72, 180, 0.12);
+  background: rgba(124, 53, 242, 0.08);
+}
+
+.updates-header-button {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--teamchat-accent);
+  color: #fff;
+  font-weight: 600;
+  font-size: 13px;
+  height: 36px;
+  padding: 0 14px;
+  cursor: pointer;
+  box-shadow: none;
+  white-space: nowrap;
+}
+
+.updates-header-button:hover {
+  background: var(--teamchat-accent-hover);
+}
+
+.action-label-mobile {
+  display: none;
 }
 
 .team-pet-dashboard {
@@ -2534,7 +2571,77 @@
   }
 
   .chat-panel.center-column {
-    padding: 18px 14px 22px;
+    padding: 0;
+  }
+
+  .panel-header {
+    padding: calc(env(safe-area-inset-top, 0px) + 8px) 16px 8px;
+  }
+
+  .panel-header-title-block h2 {
+    font-size: 17px;
+  }
+
+  .panel-header-actions {
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .back-to-dashboard-button,
+  .updates-header-button,
+  .group-info-button {
+    height: 34px;
+    padding: 0 11px;
+    font-size: 12px;
+  }
+
+  .action-label-desktop {
+    display: none;
+  }
+
+  .action-label-mobile {
+    display: inline;
+  }
+
+  .chat-panel-inner {
+    gap: 0;
+  }
+
+  .chat-panel-body {
+    padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .message-list {
+    padding: 14px 16px calc(76px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .typing-indicator {
+    margin: 2px 16px 8px;
+  }
+
+  .chat-error {
+    padding: 0 16px 8px;
+  }
+
+  .chat-input-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 12;
+    min-height: 60px;
+    padding: 8px 16px calc(8px + env(safe-area-inset-bottom, 0px));
+    background: #fff;
+    border-top: 1px solid #eee;
+  }
+
+  .composer-wrapper {
+    min-width: 0;
+  }
+
+  .chat-input-bar textarea {
+    max-height: 42px;
+    resize: none;
   }
 
   .team-pet-dashboard-inner {

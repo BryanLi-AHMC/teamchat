@@ -1765,7 +1765,15 @@ function MainLayout() {
             </div>
             <div className="panel-header-actions">
               <button type="button" className="back-to-dashboard-button" onClick={goToDashboard}>
-                Back to Dashboard
+                <span className="action-label-desktop">Back to Dashboard</span>
+                <span className="action-label-mobile">Dashboard</span>
+              </button>
+              <button
+                type="button"
+                className="updates-header-button"
+                onClick={() => setShowUpdatesPanel((existing) => !existing)}
+              >
+                Updates
               </button>
             {activeConversation.type === "group" ? (
               <button type="button" className="group-info-button" onClick={handleOpenGroupInfo}>
@@ -2085,7 +2093,7 @@ function MainLayout() {
       </aside>
     </div>
 
-      {!isTeamDashboardView ? (
+      {!isTeamDashboardView && !activeConversation ? (
         <button type="button" className="updates-toggle-mobile" onClick={() => setShowUpdatesPanel((existing) => !existing)}>
           Updates
         </button>
