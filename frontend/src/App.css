@@ -1732,6 +1732,14 @@
   cursor: pointer;
 }
 
+.team-pet-map-pin--draggable .team-pet-map-pin-hit {
+  cursor: grab;
+}
+
+.team-pet-map-pin--draggable.team-pet-map-pin--dragging .team-pet-map-pin-hit {
+  cursor: grabbing;
+}
+
 .team-pet-map-pin:not(.team-pet-map-pin--self) .team-pet-map-pin-hit:hover .team-pet-map-pin-visual,
 .team-pet-map-pin:not(.team-pet-map-pin--self) .team-pet-map-pin-hit:focus-visible .team-pet-map-pin-visual {
   filter: drop-shadow(0 0 14px color-mix(in srgb, var(--teamchat-accent) 45%, transparent));
@@ -1750,7 +1758,22 @@
   align-items: center;
   margin: 0;
   transform-origin: center bottom;
-  transition: filter 0.2s ease, box-shadow 0.2s ease;
+  transition: filter 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
+}
+
+.team-pet-map-pin--dragging .team-pet-map-pin-visual {
+  opacity: 0.75;
+  transform: scale(1.03);
+}
+
+.team-pet-map-pin--drop-target .team-pet-map-pin-hit {
+  border-radius: 14px;
+  outline: 2px solid color-mix(in srgb, var(--teamchat-accent) 42%, #fff);
+  outline-offset: 4px;
+}
+
+.team-pet-map-pin--drop-target .team-pet-map-pin-visual {
+  filter: drop-shadow(0 0 14px color-mix(in srgb, var(--teamchat-accent) 42%, transparent));
 }
 
 .team-pet-map-pin-visual--leader {
