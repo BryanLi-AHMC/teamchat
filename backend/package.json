@@ -5,6 +5,7 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "restart": "bash scripts/restart-backend.sh",
     "build": "tsc",
     "start": "node dist/server.js"
   },

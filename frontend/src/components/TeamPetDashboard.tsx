@@ -161,7 +161,6 @@ export function TeamPetDashboard({
         <header className="team-pet-dashboard-header">
           <div>
             <h2 className="team-pet-dashboard-title">Team Dashboard</h2>
-            <p className="team-pet-dashboard-subtitle">Click a teammate pet to start chatting</p>
           </div>
           <div className="team-pet-dashboard-header-actions">
             <button type="button" className="team-pet-dashboard-back team-pet-dashboard-back--quiet" onClick={onBackToDashboard}>
