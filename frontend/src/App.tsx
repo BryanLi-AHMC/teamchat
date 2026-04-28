@@ -764,91 +764,119 @@ function MainLayout() {
   }, [attachmentUrlByPath, messages]);
 
   useEffect(() => {
-    let isMounted = true;
-    let cleanupAuthSubscription: (() => void) | null = null;
+    if (!currentProfile?.id) {
+      return;
+    }
 
-    const setupSocket = async () => {
-      if (!currentProfile?.id) {
-        return;
-      }
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const accessToken = session?.access_token;
-      if (!accessToken) {
-        return;
-      }
-      const socket = getSocketClient(accessToken);
-      socketRef.current = socket;
+    let cancelled = false;
 
-      const onMessageNew = (incomingPayload: Parameters<typeof toChatMessageFromSocket>[0]) => {
-        const message = toChatMessageFromSocket(incomingPayload);
-        const activeConversationId = activeConversationIdRef.current;
-        const isOpenConversation = message.conversation_id === activeConversationId;
-        setLatestMessageByConversationId((existing) => ({
-          ...existing,
-          [message.conversation_id]: message,
-        }));
+    const onMessageNew = (incomingPayload: Parameters<typeof toChatMessageFromSocket>[0]) => {
+      const message = toChatMessageFromSocket(incomingPayload);
+      const activeConversationId = activeConversationIdRef.current;
+      const isOpenConversation = message.conversation_id === activeConversationId;
+      setLatestMessageByConversationId((existing) => ({
+        ...existing,
+        [message.conversation_id]: message,
+      }));
 
-        if (isOpenConversation) {
-          setMessages((existing) => {
-            if (existing.some((item) => item.id === message.id)) {
-              return existing;
-            }
-            return [...existing, message];
-          });
-        } else if (message.sender_id !== currentProfile.id) {
-          setUnreadByConversationId((existing) => ({
-            ...existing,
-            [message.conversation_id]: (existing[message.conversation_id] ?? 0) + 1,
-          }));
-        }
-      };
-
-      const onMessageError = (errorPayload: { message: string }) => {
-        if (!isMounted) {
-          return;
-        }
-        setChatError(errorPayload.message || "Message failed.");
-      };
-
-      socket.on("message:new", onMessageNew);
-      socket.on("message:error", onMessageError);
-      if (activeConversationIdRef.current) {
-        socket.emit("conversation:join", { conversationId: activeConversationIdRef.current });
-      }
-
-      const {
-        data: { subscription },
-      } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-        if (nextSession?.access_token) {
-          socket.auth = { token: nextSession.access_token };
-          if (!socket.connected) {
-            socket.connect();
+      if (isOpenConversation) {
+        setMessages((existing) => {
+          if (existing.some((item) => item.id === message.id)) {
+            return existing;
           }
-        } else {
-          disconnectSocketClient();
-          socketRef.current = null;
-        }
-      });
-
-      cleanupAuthSubscription = () => subscription.unsubscribe();
-
-      if (!isMounted) {
-        socket.off("message:new", onMessageNew);
-        socket.off("message:error", onMessageError);
+          return [...existing, message];
+        });
+      } else if (message.sender_id !== currentProfile.id) {
+        setUnreadByConversationId((existing) => ({
+          ...existing,
+          [message.conversation_id]: (existing[message.conversation_id] ?? 0) + 1,
+        }));
       }
     };
 
-    void setupSocket();
+    const onMessageError = (errorPayload: { message: string }) => {
+      if (cancelled) {
+        return;
+      }
+      setChatError(errorPayload.message || "Message failed.");
+    };
+
+    const bindSocketListeners = (nextSocket: ReturnType<typeof getSocketClient>) => {
+      const previousSocket = socketRef.current;
+      if (previousSocket && previousSocket !== nextSocket) {
+        previousSocket.off("message:new", onMessageNew);
+        previousSocket.off("message:error", onMessageError);
+      }
+      if (!nextSocket) {
+        socketRef.current = null;
+        return;
+      }
+      nextSocket.off("message:new", onMessageNew);
+      nextSocket.off("message:error", onMessageError);
+      nextSocket.on("message:new", onMessageNew);
+      nextSocket.on("message:error", onMessageError);
+      if (activeConversationIdRef.current) {
+        nextSocket.emit("conversation:join", { conversationId: activeConversationIdRef.current });
+      }
+      socketRef.current = nextSocket;
+    };
+
+    const connectSocket = async () => {
+      const { data, error } = await supabase.auth.getSession();
+      if (cancelled) {
+        return;
+      }
+      if (error) {
+        console.error("[socket] failed to get session", error.message);
+        return;
+      }
+
+      const accessToken = data.session?.access_token;
+      if (!accessToken) {
+        console.warn("[socket] no session access token; socket not connected");
+        return;
+      }
+
+      console.log("[socket] session token exists", {
+        hasToken: Boolean(accessToken),
+        tokenPrefix: accessToken.slice(0, 12),
+        socketUrl: import.meta.env.VITE_SOCKET_URL || "http://localhost:3003",
+      });
+
+      const nextSocket = getSocketClient(accessToken);
+      bindSocketListeners(nextSocket);
+    };
+
+    void connectSocket();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session?.access_token) {
+        const existingSocket = socketRef.current;
+        if (existingSocket) {
+          existingSocket.off("message:new", onMessageNew);
+          existingSocket.off("message:error", onMessageError);
+        }
+        disconnectSocketClient();
+        socketRef.current = null;
+        return;
+      }
+
+      console.log("[socket] session token exists", {
+        hasToken: Boolean(session.access_token),
+        tokenPrefix: session.access_token.slice(0, 12),
+        socketUrl: import.meta.env.VITE_SOCKET_URL || "http://localhost:3003",
+      });
+      const nextSocket = getSocketClient(session.access_token);
+      bindSocketListeners(nextSocket);
+    });
 
     return () => {
-      isMounted = false;
-      cleanupAuthSubscription?.();
-      const socket = socketRef.current;
-      if (socket) {
-        socket.removeAllListeners("message:new");
-        socket.removeAllListeners("message:error");
+      cancelled = true;
+      authListener.subscription.unsubscribe();
+      const existingSocket = socketRef.current;
+      if (existingSocket) {
+        existingSocket.off("message:new", onMessageNew);
+        existingSocket.off("message:error", onMessageError);
       }
       disconnectSocketClient();
       socketRef.current = null;

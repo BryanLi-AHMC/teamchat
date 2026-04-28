@@ -35,12 +35,25 @@ type ClientToServerEvents = {
 };
 
 let socket: Socket<ServerToClientEvents, ClientToServerEvents> | null = null;
+let socketToken: string | null = null;
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:3003";
 
 export function getSocketClient(accessToken: string) {
+  if (!accessToken) {
+    console.warn("[socket] no access token; not connecting");
+    return null;
+  }
+
+  if (socket && socketToken !== accessToken) {
+    console.log("[socket] token changed; reconnecting socket");
+    socket.disconnect();
+    socket = null;
+    socketToken = null;
+  }
+
   if (!socket) {
+    socketToken = accessToken;
     socket = io(SOCKET_URL, {
-      autoConnect: false,
       auth: {
         token: accessToken,
       },
@@ -57,16 +70,14 @@ export function getSocketClient(accessToken: string) {
       console.warn("[socket] disconnected", reason);
     });
   }
-  socket.auth = { token: accessToken };
-  if (!socket.connected) {
-    socket.connect();
-  }
+
   return socket;
 }
 
 export function disconnectSocketClient() {
   if (socket) {
     socket.disconnect();
-    socket = null;
   }
+  socket = null;
+  socketToken = null;
 }

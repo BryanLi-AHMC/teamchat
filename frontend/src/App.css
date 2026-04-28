@@ -2444,6 +2444,48 @@
   .right-panel.updates-panel {
     grid-column: 1;
     grid-row: 1;
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(100vw, 430px);
+    height: 100dvh;
+    z-index: 25;
+    background: #ffffff !important;
+    box-shadow: -12px 0 28px rgba(28, 18, 42, 0.14);
+    overflow: hidden;
+  }
+
+  .right-panel.updates-panel.updates-panel-open {
+    transform: translateX(0);
+  }
+
+  .updates-header,
+  .updates-composer,
+  .updates-timeline {
+    background: #ffffff;
+  }
+
+  .updates-header {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 18px);
+  }
+
+  .updates-timeline {
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 24px);
+  }
+
+  .updates-toggle-mobile {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 132px);
+    right: 18px;
+    bottom: auto;
+    z-index: 30;
+    min-height: 46px;
+    padding: 0 22px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #7c35f2 0%, #b650f5 100%);
+    color: #fff;
+    box-shadow: 0 14px 28px rgba(139, 63, 246, 0.28);
   }
 
   .chat-panel.center-column {
@@ -2632,8 +2674,9 @@
   }
 
   .updates-toggle-mobile {
-    right: 16px;
-    bottom: 16px;
+    top: calc(env(safe-area-inset-top, 0px) + 112px);
+    right: 14px;
+    bottom: auto;
     min-height: 46px;
     border-radius: 999px;
   }

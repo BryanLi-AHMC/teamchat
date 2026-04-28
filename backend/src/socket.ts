@@ -39,21 +39,27 @@ export function attachSocketServer(httpServer: HttpServer, frontendOrigins: stri
         throw new Error("Supabase admin is not configured.");
       }
 
-      const auth = socket.handshake.auth as SocketAuth;
-      const token = auth?.token;
+      const token = (socket.handshake.auth as SocketAuth)?.token;
+      console.log("[socket] auth token received", {
+        hasToken: Boolean(token),
+        tokenPrefix: token ? token.slice(0, 12) : null,
+      });
+
       if (!token) {
-        throw new Error("Missing auth token.");
+        throw new Error("Missing auth token");
       }
 
-      const {
-        data: { user },
-        error,
-      } = await supabaseAdmin.auth.getUser(token);
-      if (error || !user?.id) {
-        throw new Error("Invalid auth token.");
+      const { data, error } = await supabaseAdmin.auth.getUser(token);
+      if (error || !data.user) {
+        console.error("[socket] invalid auth token", {
+          error: error?.message,
+          tokenPresent: Boolean(token),
+          tokenPrefix: token ? token.slice(0, 12) : null,
+        });
+        throw new Error("Invalid auth token");
       }
 
-      socket.data.userId = user.id;
+      socket.data.userId = data.user.id;
       next();
     } catch (error) {
       next(error instanceof Error ? error : new Error("Authentication failed."));
