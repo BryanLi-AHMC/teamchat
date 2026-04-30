@@ -1,6 +1,6 @@
 import { type CSSProperties, type FormEvent, useEffect, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
-import { requireActiveInternalProfile } from "../lib/authProfile";
+import { requireActiveInternalProfileWithToken } from "../lib/authProfile";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 import "./Login.css";
 
@@ -20,6 +20,45 @@ const ORBIT_GAP = 18;
 const TOP_ORBIT_GAP = 18;
 const PET_SPACING = 52;
 const ORBIT_SPEED = 58;
+const isDev = import.meta.env.DEV;
+
+function clearSupabaseAuthArtifacts() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const shouldClearKey = (key: string) => {
+    const normalized = key.toLowerCase();
+    return (
+      normalized.includes("supabase") ||
+      normalized.includes("sb-") ||
+      normalized.includes("auth-token")
+    );
+  };
+
+  for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
+    const key = window.localStorage.key(index);
+    if (key && shouldClearKey(key)) {
+      window.localStorage.removeItem(key);
+    }
+  }
+
+  for (let index = window.sessionStorage.length - 1; index >= 0; index -= 1) {
+    const key = window.sessionStorage.key(index);
+    if (key && shouldClearKey(key)) {
+      window.sessionStorage.removeItem(key);
+    }
+  }
+
+  const cookies = document.cookie ? document.cookie.split(";") : [];
+  for (const cookie of cookies) {
+    const [rawName] = cookie.split("=");
+    const cookieName = rawName?.trim();
+    if (cookieName && shouldClearKey(cookieName)) {
+      document.cookie = `${cookieName}=; Max-Age=0; path=/`;
+    }
+  }
+}
 
 function pointOnRoundedRectPerimeter(
   distance: number,
@@ -179,6 +218,13 @@ function Login() {
 
     try {
       const normalizedEmail = email.trim().toLowerCase();
+      await supabase.auth.signOut();
+      clearSupabaseAuthArtifacts();
+
+      if (isDev) {
+        console.log("[auth/login] enteredEmail", normalizedEmail);
+      }
+
       const { data, error } = await supabase.auth.signInWithPassword({
         email: normalizedEmail,
         password,
@@ -189,13 +235,30 @@ function Login() {
         return;
       }
 
-      console.log("[auth/login] sign-in success", {
-        normalizedEmail,
-        authUserId: data.user?.id ?? null,
-        sessionCreated: Boolean(data.session),
-      });
+      const signedInUserEmail = data.user?.email?.trim().toLowerCase() ?? "";
+      if (isDev) {
+        console.log("[auth/login] signedInUserEmail", signedInUserEmail || null);
+      }
+      if (!signedInUserEmail || signedInUserEmail !== normalizedEmail) {
+        await supabase.auth.signOut();
+        setErrorMessage(
+          "Signed-in account does not match the email entered. Please retry with the correct account."
+        );
+        return;
+      }
 
-      await requireActiveInternalProfile();
+      const accessToken = data.session?.access_token;
+      if (!accessToken) {
+        await supabase.auth.signOut();
+        setErrorMessage("Login succeeded but no valid session token was returned. Please try again.");
+        return;
+      }
+
+      if (isDev) {
+        console.log("[auth/login] token source", "fresh login response");
+      }
+
+      await requireActiveInternalProfileWithToken(accessToken);
       navigate("/", { replace: true });
     } catch (error) {
       console.error("Login failed", error);

@@ -20,7 +20,7 @@ const unauthorizedMessage = "Your account is not authorized for this portal.";
 let hasLoggedProfileApiUrl = false;
 const isDev = import.meta.env.DEV;
 
-export async function getCurrentInternalProfile(): Promise<InternalProfile | null> {
+export async function getCurrentInternalProfile(accessToken?: string): Promise<InternalProfile | null> {
   const {
     data: { session },
     error: sessionError,
@@ -45,10 +45,15 @@ export async function getCurrentInternalProfile(): Promise<InternalProfile | nul
     hasLoggedProfileApiUrl = true;
   }
 
+  const authorizationToken = accessToken ?? session.access_token;
+  if (!authorizationToken) {
+    throw new Error("Your session is missing or expired. Please sign in again.");
+  }
+
   const response = await fetch(profileUrl, {
     method: "GET",
     headers: {
-      Authorization: `Bearer ${session.access_token}`,
+      Authorization: `Bearer ${authorizationToken}`,
     },
     credentials: "include",
   });
@@ -98,6 +103,18 @@ export async function getCurrentInternalProfile(): Promise<InternalProfile | nul
 
 export async function requireActiveInternalProfile(): Promise<InternalProfile> {
   const profile = await getCurrentInternalProfile();
+
+  if (!profile || !profile.is_active) {
+    throw new Error(unauthorizedMessage);
+  }
+
+  return profile;
+}
+
+export async function requireActiveInternalProfileWithToken(
+  accessToken: string
+): Promise<InternalProfile> {
+  const profile = await getCurrentInternalProfile(accessToken);
 
   if (!profile || !profile.is_active) {
     throw new Error(unauthorizedMessage);
