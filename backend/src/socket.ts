@@ -35,6 +35,22 @@ type SocketCurrentProfile = {
   is_active: boolean;
 };
 
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err: unknown) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
 export function attachSocketServer(
   httpServer: HttpServer,
   isAllowedOrigin: (origin: string | undefined) => boolean
@@ -67,7 +83,11 @@ export function attachSocketServer(
         throw new Error("Missing auth token");
       }
 
-      const { data, error } = await supabaseAdmin.auth.getUser(token);
+      const { data, error } = await withTimeout(
+        supabaseAdmin.auth.getUser(token),
+        10_000,
+        "Supabase auth.getUser"
+      );
       if (error || !data.user) {
         console.error("[socket] invalid auth token", {
           error: error?.message,
@@ -77,9 +97,13 @@ export function attachSocketServer(
         throw new Error("Invalid auth token");
       }
 
-      const currentProfile = await resolveCurrentProfile(supabaseAdmin, {
-        email: data.user.email,
-      });
+      const currentProfile = await withTimeout(
+        resolveCurrentProfile(supabaseAdmin, {
+          email: data.user.email,
+        }),
+        10_000,
+        "resolveCurrentProfile"
+      );
       if (!currentProfile || !currentProfile.is_active) {
         throw new Error("Your account is not authorized for this portal.");
       }
@@ -126,6 +150,11 @@ export function attachSocketServer(
         }
 
         await assertConversationMembership(supabaseAdmin!, currentProfile.id, conversationId);
+        const room = toConversationRoom(conversationId);
+        // Ensure this socket is in the room before broadcast. Otherwise a fast
+        // message:send can beat conversation:join and the sender never receives message:new.
+        await socket.join(room);
+
         const parsed = validateMessageInput(payload);
         const stored = await insertMessage(supabaseAdmin!, {
           conversationId,
@@ -135,7 +164,7 @@ export function attachSocketServer(
           attachment: parsed.attachment,
         });
 
-        io.to(toConversationRoom(conversationId)).emit("message:new", {
+        io.to(room).emit("message:new", {
           id: stored.id,
           conversationId: stored.conversation_id,
           senderId: stored.sender_id,

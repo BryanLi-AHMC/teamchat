@@ -51,6 +51,19 @@ app.use("/api/progress", progressRouter);
 const httpServer = createServer(app);
 attachSocketServer(httpServer, isAllowedOrigin);
 
+httpServer.on("error", (err: NodeJS.ErrnoException) => {
+  if (err.code === "EADDRINUSE") {
+    console.error(
+      `\n[FATAL] Port ${PORT} is already in use — this API did not start. Chat (Socket.IO) will time out in the browser until this is fixed.\n` +
+        `  • Stop the other process using ${PORT} (often another TeamChat backend terminal), or\n` +
+        `  • Windows: Get-NetTCPConnection -LocalPort ${PORT} -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }\n`
+    );
+    process.exit(1);
+    return;
+  }
+  console.error("[httpServer] error:", err);
+});
+
 const runSupabaseStartupSanityCheck = async (): Promise<void> => {
   console.log("[startup:supabase] process.cwd():", process.cwd());
   console.log("[startup:supabase] SUPABASE_URL:", process.env.SUPABASE_URL);
@@ -113,6 +126,7 @@ httpServer.listen(PORT, () => {
   console.log("Port:", PORT);
   console.log("Environment:", process.env.NODE_ENV || "development");
   console.log("[cors] allowed frontend origins:", env.frontendOrigins);
+  console.log("[socket] Socket.IO attached on the same HTTP port as the API.");
   void runSupabaseStartupSanityCheck().catch((error) => {
     console.error("[startup:supabase] unexpected sanity check failure:", error);
   });

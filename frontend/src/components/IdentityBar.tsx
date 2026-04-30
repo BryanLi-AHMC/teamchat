@@ -9,6 +9,8 @@ export type IdentityBarProps = {
   onPetChange: (petId: string) => void;
   onThemeColorChange: (themeId: string) => void;
   onSave?: () => void;
+  /** When set (e.g. modal), shows a close control and should dismiss the host overlay. */
+  onRequestClose?: () => void;
 };
 
 // TODO: Persist selected pet/theme to user_profiles in Supabase (see localStorage for now).
@@ -39,6 +41,7 @@ export function IdentityBar({
   onPetChange,
   onThemeColorChange,
   onSave,
+  onRequestClose,
 }: IdentityBarProps) {
   const handleSaveClick = () => {
     onSave?.();
@@ -47,11 +50,25 @@ export function IdentityBar({
   return (
     <div
       id="teamchat-identity-bar"
-      className="identity-bar shrink-0 w-full"
+      className={`identity-bar shrink-0 w-full ${onRequestClose ? "identity-bar--modal" : ""}`.trim()}
     >
       <div className="identity-bar-panel w-full max-w-full">
-        <div className="identity-bar-header min-w-0">
-          <p className="identity-bar-title">Choose Your Identity</p>
+        <div
+          className={`identity-bar-header min-w-0${onRequestClose ? " identity-bar-header--with-actions" : ""}`.trim()}
+        >
+          <p id="teamchat-identity-dialog-title" className="identity-bar-title">
+            Choose Your Identity
+          </p>
+          {onRequestClose ? (
+            <button
+              type="button"
+              className="identity-bar-close"
+              onClick={onRequestClose}
+              aria-label="Close"
+            >
+              ×
+            </button>
+          ) : null}
         </div>
         {onSave ? (
           <button
@@ -69,7 +86,7 @@ export function IdentityBar({
         <div className="identity-bar-sections">
             <section className="identity-bar-section choose-pet-section">
               <div
-                className="identity-bar-pet-container identity-pet-grid pet-grid pet-picker-grid w-full max-w-full content-start justify-start [scrollbar-gutter:stable]"
+                className="identity-bar-pet-container identity-pet-grid pet-picker-grid w-full max-w-full"
                 role="listbox"
                 aria-label="Pet avatars"
               >
@@ -99,8 +116,8 @@ export function IdentityBar({
                         src={pet.imageUrl}
                         alt=""
                         className="pointer-events-none rounded-lg object-contain"
-                        width={48}
-                        height={48}
+                        width={40}
+                        height={40}
                       />
                       {isSelected ? (
                         <span

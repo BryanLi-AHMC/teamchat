@@ -34,9 +34,12 @@ export async function resolveCurrentProfile(
     return null;
   }
 
+  // Base schema (create_internal_profiles) always has these columns. Stats columns
+  // (xp_total, points, …) come from a later migration — selecting them breaks auth when
+  // remote DBs have not applied that migration (Postgres: "column … does not exist").
   const { data, error } = await supabaseAdmin
     .from("internal_profiles")
-    .select("id,email,display_name,role,is_active,xp_total,points,level,streak")
+    .select("id,email,display_name,role,is_active")
     .ilike("email", normalizedEmail)
     .maybeSingle();
 

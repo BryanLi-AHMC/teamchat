@@ -4,11 +4,13 @@ import {
   FormEvent,
   KeyboardEvent,
   MouseEvent as ReactMouseEvent,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { getCurrentInternalProfile, type InternalProfile } from "./lib/authProfile";
@@ -33,12 +35,20 @@ import {
 import { createMyUpdate, deleteMyUpdate, fetchUpdatesForUser, type UserUpdate } from "./lib/updates";
 import { createTypingChannel, subscribeToTeamPresence } from "./lib/presence";
 import { awardMyUpdateXp, type UserStats } from "./lib/profileStats";
-import { disconnectSocketClient, getSocketClient } from "./lib/socket";
+import {
+  disconnectSocketClient,
+  getResolvedSocketUrl,
+  getSocketClient,
+  probeTeamchatApiHealth,
+  SOCKET_READY_WAIT_MS,
+  waitForSocketConnection,
+} from "./lib/socket";
 import { supabase } from "./lib/supabase";
 import Login from "./pages/Login";
 import TeamHubHome from "./pages/TeamHubHome";
 import { PetAvatar } from "./components/PetAvatar";
 import { IdentityBar } from "./components/IdentityBar";
+import { HubRailWidgets } from "./components/HubRailWidgets";
 import { TeamPetDashboard } from "./components/TeamPetDashboard";
 import { CurrentUserPlayerCard } from "./components/CurrentUserPlayerCard";
 import { PET_OPTIONS, isValidPetId } from "./constants/pets";
@@ -75,6 +85,8 @@ type NewGroupModalProps = {
   isSubmitting: boolean;
   onCancel: () => void;
   onCreate: (title: string, selectedUserIds: string[]) => Promise<void>;
+  /** Same CSS vars as `.app-shell` — modals render outside the shell so theme colors must be re-applied */
+  shellThemeStyle?: CSSProperties;
 };
 
 type GroupInfoModalProps = {
@@ -88,6 +100,7 @@ type GroupInfoModalProps = {
   onOpenAddMembers: () => void;
   onRemoveMember: (member: InternalProfile) => Promise<void>;
   onDissolveGroup: () => Promise<void>;
+  shellThemeStyle?: CSSProperties;
 };
 
 type AddMembersModalProps = {
@@ -96,16 +109,13 @@ type AddMembersModalProps = {
   isSubmitting: boolean;
   onCancel: () => void;
   onConfirm: (selectedUserIds: string[]) => Promise<void>;
+  shellThemeStyle?: CSSProperties;
 };
 
-function NewGroupModal({ users, availablePetIds, isSubmitting, onCancel, onCreate }: NewGroupModalProps) {
+function NewGroupModal({ users, availablePetIds, isSubmitting, onCancel, onCreate, shellThemeStyle }: NewGroupModalProps) {
   const [groupName, setGroupName] = useState("");
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    console.log("groupName", groupName, "selectedMemberIds", selectedMemberIds);
-  }, [groupName, selectedMemberIds]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -133,7 +143,7 @@ function NewGroupModal({ users, availablePetIds, isSubmitting, onCancel, onCreat
   const canCreate = groupName.trim().length > 0 && selectedMemberIds.length > 0;
 
   return (
-    <div className="modal-backdrop" role="presentation">
+    <div className="modal-backdrop" style={shellThemeStyle} role="presentation">
       <div
         className="modal-card modal-card--new-group"
         role="dialog"
@@ -198,7 +208,14 @@ function NewGroupModal({ users, availablePetIds, isSubmitting, onCancel, onCreat
   );
 }
 
-function AddMembersModal({ candidates, availablePetIds, isSubmitting, onCancel, onConfirm }: AddMembersModalProps) {
+function AddMembersModal({
+  candidates,
+  availablePetIds,
+  isSubmitting,
+  onCancel,
+  onConfirm,
+  shellThemeStyle,
+}: AddMembersModalProps) {
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [error, setError] = useState("");
 
@@ -225,7 +242,7 @@ function AddMembersModal({ candidates, availablePetIds, isSubmitting, onCancel, 
   };
 
   return (
-    <div className="modal-backdrop" role="presentation">
+    <div className="modal-backdrop" style={shellThemeStyle} role="presentation">
       <div className="modal-card" role="dialog" aria-modal="true" aria-label="Add group members">
         <h3>Add Members</h3>
         {candidates.length === 0 ? (
@@ -286,9 +303,10 @@ function GroupInfoModal({
   onOpenAddMembers,
   onRemoveMember,
   onDissolveGroup,
+  shellThemeStyle,
 }: GroupInfoModalProps) {
   return (
-    <div className="modal-backdrop" role="presentation">
+    <div className="modal-backdrop" style={shellThemeStyle} role="presentation">
       <div className="modal-card modal-card-wide" role="dialog" aria-modal="true" aria-label="Group info">
         <div className="group-info-header">
           <h3>{group.title || "Untitled group"}</h3>
@@ -454,9 +472,13 @@ function MainLayout() {
   const [isPostingUpdate, setIsPostingUpdate] = useState(false);
   const [levelUpToast, setLevelUpToast] = useState<string | null>(null);
   const [showUpdatesPanel, setShowUpdatesPanel] = useState(false);
+  const [showIdentityBar, setShowIdentityBar] = useState(false);
+  const [hubDailyExpanded, setHubDailyExpanded] = useState(true);
+  const [hubRailScrollVisible, setHubRailScrollVisible] = useState(true);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [restoredConversationId, setRestoredConversationId] = useState<string | null>(null);
   const timelineScrollRef = useRef<HTMLDivElement | null>(null);
+  const hubRailScrollRegionRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const emojiMenuRef = useRef<HTMLDivElement | null>(null);
@@ -465,6 +487,7 @@ function MainLayout() {
   const typingIdleTimerRef = useRef<number | null>(null);
   const socketRef = useRef<ReturnType<typeof getSocketClient> | null>(null);
   const activeConversationIdRef = useRef<string | null>(null);
+  const socketConnectJoinHandlerRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     console.log("[chat/debug] identity-and-route", {
@@ -496,6 +519,42 @@ function MainLayout() {
       /* ignore */
     }
   }, [selectedThemeColor]);
+
+  useEffect(() => {
+    if (activeConversation) {
+      setShowIdentityBar(false);
+    }
+  }, [activeConversation]);
+
+  useEffect(() => {
+    if (!showIdentityBar) {
+      return;
+    }
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setShowIdentityBar(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [showIdentityBar]);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 1200px)");
+    const syncHubRail = () => {
+      if (mq.matches) {
+        setHubRailScrollVisible(true);
+      }
+    };
+    syncHubRail();
+    mq.addEventListener("change", syncHubRail);
+    return () => mq.removeEventListener("change", syncHubRail);
+  }, []);
 
   useEffect(() => {
     if (!levelUpToast) {
@@ -889,6 +948,9 @@ function MainLayout() {
         previousSocket.off("message:new", onMessageNew);
         previousSocket.off("message:error", onMessageError);
         previousSocket.off("user:stats_updated", onUserStatsUpdated);
+        if (socketConnectJoinHandlerRef.current) {
+          previousSocket.off("connect", socketConnectJoinHandlerRef.current);
+        }
       }
       if (!nextSocket) {
         socketRef.current = null;
@@ -900,9 +962,22 @@ function MainLayout() {
       nextSocket.on("message:new", onMessageNew);
       nextSocket.on("message:error", onMessageError);
       nextSocket.on("user:stats_updated", onUserStatsUpdated);
-      if (activeConversationIdRef.current) {
-        nextSocket.emit("conversation:join", { conversationId: activeConversationIdRef.current });
+
+      if (socketConnectJoinHandlerRef.current) {
+        nextSocket.off("connect", socketConnectJoinHandlerRef.current);
       }
+      const joinActiveConversationRoom = () => {
+        const conversationId = activeConversationIdRef.current;
+        if (conversationId) {
+          nextSocket.emit("conversation:join", { conversationId });
+        }
+      };
+      socketConnectJoinHandlerRef.current = joinActiveConversationRoom;
+      nextSocket.on("connect", joinActiveConversationRoom);
+      if (nextSocket.connected) {
+        joinActiveConversationRoom();
+      }
+
       socketRef.current = nextSocket;
     };
 
@@ -925,7 +1000,7 @@ function MainLayout() {
       console.log("[socket] session token exists", {
         hasToken: Boolean(accessToken),
         tokenPrefix: accessToken.slice(0, 12),
-        socketUrl: import.meta.env.VITE_SOCKET_URL || "http://localhost:3003",
+        socketUrl: getResolvedSocketUrl(),
       });
 
       const nextSocket = getSocketClient(accessToken);
@@ -941,6 +1016,9 @@ function MainLayout() {
           existingSocket.off("message:new", onMessageNew);
           existingSocket.off("message:error", onMessageError);
           existingSocket.off("user:stats_updated", onUserStatsUpdated);
+          if (socketConnectJoinHandlerRef.current) {
+            existingSocket.off("connect", socketConnectJoinHandlerRef.current);
+          }
         }
         disconnectSocketClient();
         socketRef.current = null;
@@ -950,7 +1028,7 @@ function MainLayout() {
       console.log("[socket] session token exists", {
         hasToken: Boolean(session.access_token),
         tokenPrefix: session.access_token.slice(0, 12),
-        socketUrl: import.meta.env.VITE_SOCKET_URL || "http://localhost:3003",
+        socketUrl: getResolvedSocketUrl(),
       });
       const nextSocket = getSocketClient(session.access_token);
       bindSocketListeners(nextSocket);
@@ -964,6 +1042,9 @@ function MainLayout() {
         existingSocket.off("message:new", onMessageNew);
         existingSocket.off("message:error", onMessageError);
         existingSocket.off("user:stats_updated", onUserStatsUpdated);
+        if (socketConnectJoinHandlerRef.current) {
+          existingSocket.off("connect", socketConnectJoinHandlerRef.current);
+        }
       }
       disconnectSocketClient();
       socketRef.current = null;
@@ -1182,6 +1263,22 @@ function MainLayout() {
 
   const isTeamDashboardView = !activeConversation && Boolean(currentProfile);
 
+  useEffect(() => {
+    if (!hubRailScrollVisible) {
+      return;
+    }
+    const el = hubRailScrollRegionRef.current;
+    if (!el) {
+      return;
+    }
+    if (isTeamDashboardView || showUpdatesPanel) {
+      el.scrollTop = 0;
+      requestAnimationFrame(() => {
+        el.scrollTop = 0;
+      });
+    }
+  }, [isTeamDashboardView, hubRailScrollVisible, showUpdatesPanel, currentProfile?.id]);
+
   const canManageActiveGroup = useMemo(() => {
     if (!activeConversation || activeConversation.type !== "group" || !currentProfile) {
       return false;
@@ -1247,6 +1344,15 @@ function MainLayout() {
     navigate("/", { replace: true });
   };
 
+  /** Wide layout: docked third column. Narrow: slide-over drawer — do not clear hub content on drawer close. */
+  const collapseUpdatesRail = useCallback(() => {
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 1200px)").matches) {
+      setShowUpdatesPanel(false);
+      return;
+    }
+    setHubRailScrollVisible(false);
+  }, []);
+
   const handleLogout = async () => {
     const ok = window.confirm("Log out?");
     if (!ok) {
@@ -1257,6 +1363,7 @@ function MainLayout() {
   };
 
   const handleViewUpdatesProfile = (targetUserId: string) => {
+    setHubRailScrollVisible(true);
     if (targetUserId === selectedUpdatesUserId) {
       setShowUpdatesPanel(true);
       return;
@@ -1447,6 +1554,26 @@ function MainLayout() {
     }
   };
 
+  const ensureChatTransportReady = async () => {
+    const socket = socketRef.current;
+    if (!socket) {
+      throw new Error("Chat is still connecting. Try again in a moment.");
+    }
+    if (socket.connected) {
+      return;
+    }
+    const probe = await probeTeamchatApiHealth();
+    if (!probe.ok) {
+      throw new Error(
+        `TeamChat API not reachable (${import.meta.env.VITE_API_BASE_URL ?? "VITE_API_BASE_URL"}): ${probe.message}. From the repo root run \`npm run dev\` and confirm the log shows "TEAMCHAT BACKEND STARTED" and no EADDRINUSE on port 3003.`
+      );
+    }
+    const wait = await waitForSocketConnection(socket, SOCKET_READY_WAIT_MS);
+    if (!wait.ok) {
+      throw new Error(`Chat realtime: ${wait.reason}`);
+    }
+  };
+
   const handleSend = async (event?: FormEvent<HTMLFormElement> | ReactMouseEvent<HTMLButtonElement>) => {
     event?.preventDefault();
 
@@ -1474,9 +1601,10 @@ function MainLayout() {
           },
         });
       }
+      await ensureChatTransportReady();
       const socket = socketRef.current;
       if (!socket) {
-        throw new Error("Realtime connection unavailable.");
+        throw new Error("Chat is still connecting. Try again in a moment.");
       }
       socket.emit("message:send", {
         conversationId: activeConversation.id,
@@ -1526,9 +1654,10 @@ function MainLayout() {
         throw new Error(uploadError.message);
       }
 
+      await ensureChatTransportReady();
       const socket = socketRef.current;
       if (!socket) {
-        throw new Error("Realtime connection unavailable.");
+        throw new Error("Chat is still connecting. Try again in a moment.");
       }
       socket.emit("message:send", {
         conversationId: activeConversation.id,
@@ -1675,9 +1804,29 @@ function MainLayout() {
           {levelUpToast}
         </div>
       ) : null}
-      <div className="app-shell" style={appShellTheme}>
+      <div
+        className={`app-shell${hubRailScrollVisible ? "" : " app-shell--hub-rail-collapsed"}`.trim()}
+        style={appShellTheme}
+      >
       <aside className="sidebar sidebar-panel">
         <div className="sidebar-body-scroll">
+          {currentProfile ? (
+            <div className="sidebar-player-card-slot">
+              <CurrentUserPlayerCard
+                displayName={currentProfile.display_name}
+                imageUrl={currentProfile.avatar_url}
+                selectedPetId={selectedPetId}
+                totalXp={totalXpByUserId[currentProfile.id] ?? 0}
+                isOnline
+                roleLabel={currentUserRoleLabel}
+                dayStreak={currentUserDayStreak}
+                isIdentityPanelOpen={showIdentityBar}
+                onPetIconClick={() => setShowIdentityBar((open) => !open)}
+                onOpenProfile={() => void handleViewUpdatesProfile(currentProfile.id)}
+              />
+            </div>
+          ) : null}
+
           <div className="sidebar-brand">
             <h1 className="app-title">TeamChat</h1>
           </div>
@@ -1717,7 +1866,7 @@ function MainLayout() {
                       <span role="button" onClick={(event) => {
                         event.stopPropagation();
                         handleViewUpdatesProfile(user.id);
-                      }}>{renderPresencePetAvatar(user, "md")}</span>
+                      }}>{renderPresencePetAvatar(user, "sm")}</span>
                       <span className="sidebar-item-text-wrap">
                         <span
                           className="sidebar-item-name"
@@ -1791,21 +1940,6 @@ function MainLayout() {
           </section>
         </nav>
         </div>
-
-        {currentProfile ? (
-          <div className="sidebar-player-card-slot">
-            <CurrentUserPlayerCard
-              displayName={currentProfile.display_name}
-              imageUrl={currentProfile.avatar_url}
-              selectedPetId={selectedPetId}
-              totalXp={totalXpByUserId[currentProfile.id] ?? 0}
-              isOnline
-              roleLabel={currentUserRoleLabel}
-              dayStreak={currentUserDayStreak}
-              onOpenProfile={() => void handleViewUpdatesProfile(currentProfile.id)}
-            />
-          </div>
-        ) : null}
       </aside>
 
       <main className="chat-panel center-column">
@@ -1821,9 +1955,7 @@ function MainLayout() {
               dmConversationByUserId={dmConversationByUserId}
               unreadByConversationId={unreadByConversationId}
               totalXpByUserId={totalXpByUserId}
-              onBackToDashboard={goToDashboard}
               onLogout={() => void handleLogout()}
-              onToggleUpdates={() => setShowUpdatesPanel((existing) => !existing)}
               onOpenTeammateDm={(userId) => void openDmConversation(userId)}
             />
           ) : null}
@@ -1855,13 +1987,21 @@ function MainLayout() {
                 <span className="action-label-desktop">Back to Dashboard</span>
                 <span className="action-label-mobile">Dashboard</span>
               </button>
-              <button
-                type="button"
-                className="updates-header-button"
-                onClick={() => setShowUpdatesPanel((existing) => !existing)}
-              >
-                Updates
-              </button>
+            <button
+              type="button"
+              className="updates-header-button"
+              onClick={() =>
+                setShowUpdatesPanel((existing) => {
+                  const next = !existing;
+                  if (next) {
+                    setHubRailScrollVisible(true);
+                  }
+                  return next;
+                })
+              }
+            >
+              Updates
+            </button>
             {activeConversation.type === "group" ? (
               <button type="button" className="group-info-button" onClick={handleOpenGroupInfo}>
                 Group Info
@@ -1975,21 +2115,11 @@ function MainLayout() {
           </p>
           </div>
 
-          {isTeamDashboardView && currentProfile ? (
-            <IdentityBar
-              selectedPetId={selectedPetId}
-              selectedThemeColor={selectedThemeColor}
-              petOptions={PET_OPTIONS}
-              onPetChange={setSelectedPetId}
-              onThemeColorChange={setSelectedThemeColor}
-            />
-          ) : null}
-
           {activeConversation ? (
           <footer className="chat-input-bar">
-            <div className="composer-wrapper">
+            <div className="chat-input-emoji-slot" ref={emojiMenuRef}>
               {showEmojiMenu ? (
-                <div className="emoji-menu" ref={emojiMenuRef}>
+                <div className="emoji-menu">
                   {EMOJIS.map((emoji) => (
                     <button key={emoji} type="button" className="emoji-menu-item" onClick={() => handleSelectEmoji(emoji)}>
                       {emoji}
@@ -1997,22 +2127,23 @@ function MainLayout() {
                   ))}
                 </div>
               ) : null}
-              <textarea
-                ref={composerRef}
-                placeholder="Type a message..."
-                value={composerText}
-                onChange={(event) => handleComposerChange(event.target.value)}
-                onKeyDown={handleComposerKeyDown}
+              <button
+                type="button"
+                className="emoji-toggle"
+                onClick={() => setShowEmojiMenu((existing) => !existing)}
                 disabled={!activeConversation}
-              />
-              <input
-                ref={fileInputRef}
-                type="file"
-                className="attachment-input"
-                accept="image/*,.pdf,.doc,.docx,.txt"
-                onChange={handleAttachmentSelect}
-              />
+                aria-label="Open emoji picker"
+              >
+                🙂
+              </button>
             </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="attachment-input"
+              accept="image/*,.pdf,.doc,.docx,.txt"
+              onChange={handleAttachmentSelect}
+            />
             <button
               type="button"
               className="attachment-toggle"
@@ -2023,17 +2154,20 @@ function MainLayout() {
             >
               {isUploadingAttachment ? "..." : "📎"}
             </button>
+            <div className="composer-wrapper">
+              <textarea
+                ref={composerRef}
+                placeholder="Type a message..."
+                value={composerText}
+                onChange={(event) => handleComposerChange(event.target.value)}
+                onKeyDown={handleComposerKeyDown}
+                disabled={!activeConversation}
+                rows={1}
+              />
+            </div>
             <button
               type="button"
-              className="emoji-toggle"
-              onClick={() => setShowEmojiMenu((existing) => !existing)}
-              disabled={!activeConversation}
-              aria-label="Open emoji picker"
-            >
-              🙂
-            </button>
-            <button
-              type="button"
+              className="chat-input-send"
               onClick={handleSend}
               disabled={!activeConversation || isSending || isUploadingAttachment || !composerText.trim()}
             >
@@ -2044,10 +2178,20 @@ function MainLayout() {
         </div>
       </main>
 
-      <aside className={`right-panel updates-panel ${showUpdatesPanel ? "updates-panel-open" : ""}`}>
-        <header className="updates-header">
+      <aside
+        className={`right-panel updates-panel hub-rail${showUpdatesPanel ? " updates-panel-open" : ""}`.trim()}
+      >
+        {hubRailScrollVisible ? (
+          <>
+            <div id="hub-rail-scroll-region" ref={hubRailScrollRegionRef} className="hub-rail-scroll">
+          <section
+            className={`hub-daily-card${hubDailyExpanded ? "" : " hub-daily-card--collapsed"}`.trim()}
+            aria-labelledby="hub-daily-title"
+          >
+            <header className="updates-header hub-daily-card__header">
           <div className="updates-header-profile-block">
-            <h3>Daily Updates</h3>
+            <span className="hub-daily-eyebrow">Today</span>
+            <h3 id="hub-daily-title">Daily Updates</h3>
             {selectedUpdatesProfile ? (
               <div className="updates-header-profile-row">
                 <button
@@ -2061,7 +2205,8 @@ function MainLayout() {
               </div>
             ) : null}
           </div>
-          <div className="updates-calendar-wrap">
+          <div className="updates-header-trailing">
+            <div className="updates-calendar-wrap">
             <button
               type="button"
               className="calendar-button"
@@ -2083,9 +2228,34 @@ function MainLayout() {
                 )}
               </div>
             ) : null}
+            </div>
+            <button
+              type="button"
+              className="hub-widget-toggle hub-rail-hide-sidebar-btn"
+              onClick={collapseUpdatesRail}
+              aria-label="Hide Updates sidebar"
+              title="Hide Updates sidebar"
+            >
+              <span className="hub-widget-toggle-icon" aria-hidden>
+                »
+              </span>
+            </button>
+            <button
+              type="button"
+              className="hub-widget-toggle hub-daily-card-toggle"
+              onClick={() => setHubDailyExpanded((existing) => !existing)}
+              aria-expanded={hubDailyExpanded}
+              aria-controls="hub-daily-collapsible"
+              title={hubDailyExpanded ? "Minimize daily updates" : "Expand daily updates"}
+            >
+              <span className="hub-widget-toggle-icon" aria-hidden>
+                {hubDailyExpanded ? "−" : "+"}
+              </span>
+            </button>
           </div>
         </header>
 
+        <div id="hub-daily-collapsible" className="hub-daily-card__collapsible" hidden={!hubDailyExpanded}>
         {selectedUpdatesUserId === currentProfile?.id ? (
           <div className="updates-composer">
             <textarea
@@ -2174,14 +2344,98 @@ function MainLayout() {
             );
           })}
         </div>
-        <p className="chat-error" role="alert">
-          {timelineError}
-        </p>
+            <p className="chat-error hub-daily-card__error" role="alert">
+              {timelineError}
+            </p>
+        </div>
+          </section>
+
+          {currentProfile ? (
+            <HubRailWidgets
+              currentProfile={currentProfile}
+              activeUsers={activeUsers}
+              groupConversations={groupConversations}
+              latestMessageByConversationId={latestMessageByConversationId}
+              dmConversationByUserId={dmConversationByUserId}
+              totalXpByUserId={totalXpByUserId}
+              onOpenDm={(userId) => void openDmConversation(userId)}
+              onOpenGroup={openGroupConversation}
+            />
+          ) : null}
+        </div>
+          </>
+        ) : null}
       </aside>
+
+      {!hubRailScrollVisible ? (
+        <div className="hub-rail-edge-tab-overlay">
+          <button
+            type="button"
+            className="hub-rail-edge-tab"
+            onClick={() => {
+              setHubRailScrollVisible(true);
+              if (typeof window !== "undefined" && window.matchMedia("(max-width: 1200px)").matches) {
+                setShowUpdatesPanel(true);
+              }
+            }}
+            aria-label="Show updates column"
+            title="Show updates column"
+          >
+            <span className="hub-rail-edge-tab-chevron" aria-hidden>
+              »
+            </span>
+            <span className="hub-rail-edge-tab-label">Updates</span>
+          </button>
+        </div>
+      ) : null}
     </div>
 
-      {!isTeamDashboardView && !activeConversation ? (
-        <button type="button" className="updates-toggle-mobile" onClick={() => setShowUpdatesPanel((existing) => !existing)}>
+      {isTeamDashboardView && currentProfile && showIdentityBar
+        ? createPortal(
+            <div
+              className="identity-bar-modal-root"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="teamchat-identity-dialog-title"
+            >
+              <button
+                type="button"
+                className="identity-bar-modal-backdrop"
+                aria-label="Close identity settings"
+                onClick={() => setShowIdentityBar(false)}
+              />
+              <div
+                className="identity-bar-modal-sheet"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <IdentityBar
+                  selectedPetId={selectedPetId}
+                  selectedThemeColor={selectedThemeColor}
+                  petOptions={PET_OPTIONS}
+                  onPetChange={setSelectedPetId}
+                  onThemeColorChange={setSelectedThemeColor}
+                  onRequestClose={() => setShowIdentityBar(false)}
+                />
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
+
+      {currentProfile ? (
+        <button
+          type="button"
+          className="updates-toggle-mobile"
+          onClick={() =>
+            setShowUpdatesPanel((existing) => {
+              const next = !existing;
+              if (next) {
+                setHubRailScrollVisible(true);
+              }
+              return next;
+            })
+          }
+        >
           Updates
         </button>
       ) : null}
@@ -2193,6 +2447,7 @@ function MainLayout() {
           isSubmitting={isCreatingGroup}
           onCancel={() => setShowGroupModal(false)}
           onCreate={handleCreateGroup}
+          shellThemeStyle={appShellTheme}
         />
       ) : null}
       {showGroupInfoModal && activeConversation?.type === "group" && currentProfile ? (
@@ -2207,6 +2462,7 @@ function MainLayout() {
           onOpenAddMembers={() => setShowAddMembersModal(true)}
           onRemoveMember={handleRemoveGroupMember}
           onDissolveGroup={handleDissolveGroup}
+          shellThemeStyle={appShellTheme}
         />
       ) : null}
       {showAddMembersModal ? (
@@ -2216,6 +2472,7 @@ function MainLayout() {
           isSubmitting={isGroupActionSubmitting}
           onCancel={() => setShowAddMembersModal(false)}
           onConfirm={handleAddGroupMembers}
+          shellThemeStyle={appShellTheme}
         />
       ) : null}
     </div>

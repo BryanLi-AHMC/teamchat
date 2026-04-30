@@ -22,5 +22,13 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: false,
+    proxy: {
+      // Socket.IO in dev: browser uses same origin as Vite; proxy upgrades to the API on 3003.
+      "/socket.io": {
+        target: "http://localhost:3003",
+        changeOrigin: true,
+        ws: true,
+      },
+    },
   },
 })

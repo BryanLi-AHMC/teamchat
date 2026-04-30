@@ -1,4 +1,5 @@
 .app-container {
+  --app-frame-gutter: 16px;
   box-sizing: border-box;
   width: 100%;
   min-height: 100vh;
@@ -6,7 +7,7 @@
   justify-content: center;
   align-items: stretch;
   background: transparent;
-  padding: 24px 0;
+  padding: var(--app-frame-gutter);
   font-family: var(--tc-font-rounded);
   color: var(--tc-text-main);
   background:
@@ -17,11 +18,15 @@
 
 @media (max-width: 900px) {
   .app-container {
+    --app-frame-gutter: 0px;
     padding: 0;
   }
 }
 
 .app-shell {
+  position: relative;
+  --app-shell-radius: 28px;
+  --app-shell-border: 1.5px;
   --teamchat-accent: var(--tc-primary);
   --teamchat-accent-hover: var(--tc-primary-hover);
   --teamchat-soft-bg: var(--tc-primary-soft);
@@ -32,25 +37,50 @@
   --tc-border-soft: var(--tc-primary-border);
   --tc-shadow-soft: 0 18px 45px color-mix(in srgb, var(--tc-primary) 14%, transparent);
   --teamchat-gradient: linear-gradient(135deg, rgba(124, 58, 237, 0.12), rgba(236, 72, 153, 0.08));
-  --map-pet-size: 112px;
-  --map-leader-pet-size: 148px;
+  --map-pet-size: 92px;
+  --map-leader-pet-size: 122px;
   display: grid;
-  grid-template-columns: minmax(300px, 22%) minmax(0, 1fr) minmax(360px, 26%);
+  grid-template-columns: minmax(256px, 17.5%) minmax(0, 1.45fr) minmax(320px, 27%);
   gap: 20px;
   box-sizing: border-box;
-  width: 80vw;
-  max-width: none;
+  width: 100%;
+  max-width: 1880px;
   min-width: 1100px;
   margin: 0 auto;
-  min-height: calc(100vh - 48px);
-  height: auto;
-  max-height: none;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1.5px solid var(--tc-border-soft);
-  border-radius: 28px;
-  overflow: visible;
+  /* Lock shell to viewport so center column flex children can shrink; only inner regions scroll */
+  --app-shell-available-height: calc(100dvh - 2 * var(--app-frame-gutter, 16px));
+  min-height: var(--app-shell-available-height);
+  height: var(--app-shell-available-height);
+  max-height: var(--app-shell-available-height);
+  grid-template-rows: minmax(0, 1fr);
+  background: rgba(255, 255, 255, 0.9);
+  border: var(--app-shell-border) solid var(--tc-border-soft);
+  border-radius: var(--app-shell-radius);
+  overflow: hidden;
   box-shadow: var(--tc-shadow-soft);
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(10px);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+/* Wide desktop: hide third column so Team Dashboard expands when hub rail is collapsed */
+@media (min-width: 1201px) {
+  .app-shell--hub-rail-collapsed {
+    grid-template-columns: minmax(256px, 17.5%) minmax(0, 1fr);
+    /* Allow sticky hub-rail edge tab to track the viewport while the shell scrolls */
+    overflow: visible;
+  }
+
+  .app-shell--hub-rail-collapsed .right-panel.updates-panel {
+    display: none;
+  }
+
+  /* Outer shell corners on the right when the hub column is hidden (mirror .sidebar rounding) */
+  .app-shell--hub-rail-collapsed .chat-panel.center-column {
+    border-top-right-radius: calc(var(--app-shell-radius) - var(--app-shell-border));
+    border-bottom-right-radius: calc(var(--app-shell-radius) - var(--app-shell-border));
+    overflow: hidden;
+  }
 }
 
 .center-column {
@@ -66,13 +96,17 @@
   grid-row: 1;
   width: auto;
   min-width: 0;
-  border-right: 1.5px solid var(--tc-border-soft);
-  padding: 20px 14px 16px;
+  border-right: var(--app-shell-border) solid var(--tc-border-soft);
+  padding: 12px 10px 10px;
   background: rgba(255, 255, 255, 0.68);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   min-height: 0;
+  /* Align with shell inner curve (parent overflow:visible when rail collapsed would otherwise show a square corner) */
+  border-top-left-radius: calc(var(--app-shell-radius) - var(--app-shell-border));
+  border-bottom-left-radius: calc(var(--app-shell-radius) - var(--app-shell-border));
+  overflow: hidden;
 }
 
 .sidebar-panel {
@@ -87,7 +121,7 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   padding-bottom: 2px;
 }
 
@@ -127,12 +161,11 @@
   text-align: left;
 }
 
-/* Current user card (lower sidebar) */
+/* Current user card (sidebar rail — top, above TeamChat title) */
 .sidebar-player-card-slot {
-  margin-top: auto;
   flex: 0 0 auto;
   width: 100%;
-  padding: 16px;
+  padding: 0;
 }
 
 .current-user-player-card {
@@ -143,21 +176,17 @@
   flex-shrink: 0;
   box-sizing: border-box;
   width: 100%;
-  height: auto;
-  min-height: 300px;
-  max-height: 360px;
-  padding: 20px 20px 18px;
-  border-radius: 14px;
-  background: var(--teamchat-gradient);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--teamchat-border);
-  box-shadow: 0 12px 32px var(--teamchat-glow);
-  color: #2a2a2a;
-  text-align: center;
+  padding: 10px 11px 11px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  color: #1f2937;
+  text-align: left;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
+  gap: 10px;
 }
 
 .sidebar-player-card-slot .current-user-player-card {
@@ -173,204 +202,241 @@
 }
 
 .current-user-player-card--button:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--teamchat-accent) 65%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--teamchat-accent) 45%, transparent);
   outline-offset: 2px;
 }
 
-.current-user-player-card__avatar-wrap {
+.current-user-player-card__icon-btn {
+  flex-shrink: 0;
   display: flex;
+  align-items: center;
   justify-content: center;
-  margin-bottom: 8px;
+  padding: 2px;
+  margin: 0;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+  line-height: 0;
 }
 
-.current-user-player-card__pet {
-  width: 112px !important;
-  height: 112px !important;
-  min-width: 112px !important;
-  min-height: 112px !important;
-  border-color: var(--teamchat-accent) !important;
-  box-shadow: 0 0 0 4px var(--teamchat-soft-bg);
+.current-user-player-card__icon-btn:hover {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.current-user-player-card__icon-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--teamchat-accent) 45%, transparent);
+  outline-offset: 2px;
+}
+
+.current-user-player-card__identity-btn {
+  flex: 1;
+  min-width: 0;
+  display: block;
+  text-align: left;
+  padding: 2px 4px;
+  margin: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.current-user-player-card__identity-btn:hover {
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.current-user-player-card__identity-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--teamchat-accent) 45%, transparent);
+  outline-offset: 1px;
+}
+
+.current-user-player-card__identity-static {
+  flex: 1;
+  min-width: 0;
+}
+
+.current-user-player-card__xp-btn {
+  width: 100%;
+  display: block;
+  padding: 2px 4px;
+  margin: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+
+.current-user-player-card__xp-btn:hover {
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.current-user-player-card__xp-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--teamchat-accent) 45%, transparent);
+  outline-offset: 1px;
+}
+
+.current-user-player-card__top {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.current-user-player-card__icon-wrap {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.current-user-player-card__icon {
+  border-radius: 8px !important;
+  border: 1px solid rgba(15, 23, 42, 0.1) !important;
+  box-shadow: none !important;
 }
 
 .current-user-player-card .player-avatar,
 .current-user-player-card .current-user-avatar {
-  width: 112px;
-  height: 112px;
+  width: 32px;
+  height: 32px;
 }
 
-.current-user-player-card__header {
+.current-user-player-card__identity {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 10px;
+  gap: 3px;
 }
 
-.current-user-player-card__name-row {
+.current-user-player-card__name-line {
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 6px;
   min-width: 0;
-  width: 100%;
 }
 
 .current-user-player-card__name {
   font-size: 14px;
   font-weight: 700;
-  color: #2a2a2a;
+  color: #111827;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 100%;
+  min-width: 0;
 }
 
 .current-user-player-card__role-pill {
   flex-shrink: 0;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  padding: 2px 7px;
+  padding: 2px 6px;
   border-radius: 999px;
-  background: var(--teamchat-soft-bg);
-  color: var(--teamchat-text);
-  border: 1px solid var(--teamchat-border);
+  background: rgba(15, 23, 42, 0.06);
+  color: #64748b;
+  border: 1px solid rgba(15, 23, 42, 0.08);
 }
 
 .current-user-player-card__online {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   font-size: 11px;
   font-weight: 500;
-  color: #6b7280;
+  color: #64748b;
 }
 
 .current-user-player-card__online--on {
-  color: #059669;
+  color: #047857;
 }
 
 .current-user-player-card__dot {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 999px;
-  background: #9ca3af;
-  box-shadow: 0 0 0 1px rgba(107, 114, 128, 0.35);
+  background: #94a3b8;
 }
 
 .current-user-player-card__online--on .current-user-player-card__dot {
-  background: #34d399;
-  box-shadow: 0 0 6px rgba(52, 211, 153, 0.45);
+  background: #10b981;
+  box-shadow: none;
 }
 
-.current-user-player-card__level-xp {
-  width: 100%;
+.current-user-player-card__xp-block {
   display: flex;
   flex-direction: column;
+  gap: 5px;
+  width: 100%;
+}
+
+.current-user-player-card__xp-meta {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 4px;
-  margin-bottom: 8px;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1.2;
 }
 
-.current-user-player-card__xp {
-  max-width: 100% !important;
-  width: min(100%, 320px);
-  background: color-mix(in srgb, var(--teamchat-soft-bg) 50%, rgba(255, 255, 255, 0.45)) !important;
-  border-color: var(--teamchat-border) !important;
-  box-shadow: 0 4px 16px var(--teamchat-glow) !important;
+.current-user-player-card__xp-level {
+  font-weight: 700;
+  color: #374151;
 }
 
-.current-user-player-card .xp-progress-badge,
+.current-user-player-card__xp-numbers {
+  font-weight: 600;
+  color: #64748b;
+  font-variant-numeric: tabular-nums;
+}
+
+.current-user-player-card__xp-rect {
+  width: 100%;
+  height: 8px;
+  border-radius: 3px;
+  background: #e2e8f0;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.current-user-player-card__xp-rect-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--teamchat-accent) 55%, #64748b);
+}
+
 .current-user-card .xp-progress-badge,
 .player-card .xp-progress-badge {
   margin-left: auto;
   margin-right: auto;
-  width: 280px;
+  width: min(280px, 100%);
 }
 
-.current-user-player-card .xp-progress-badge--panel,
 .current-user-card .xp-progress-badge--panel,
 .player-card .xp-progress-badge--panel {
   width: min(100%, 320px);
 }
 
-.current-user-player-card .player-card-xp,
-.current-user-player-card .xp-section {
-  width: 100%;
-  display: flex;
-  justify-content: center;
-}
-
-.current-user-player-card__xp .xp-progress-badge__level {
-  color: #2a2a2a !important;
-}
-
-.current-user-player-card__xp .xp-progress-badge__fraction,
-.current-user-player-card__xp .xp-progress-badge__fraction--compact {
-  color: #6b7280 !important;
-}
-
-.current-user-player-card__xp .xp-progress-badge__track {
-  background: var(--teamchat-soft-bg) !important;
-  border-color: var(--teamchat-border) !important;
-}
-
-.current-user-player-card__xp .xp-progress-badge__fill {
-  background: var(--teamchat-accent) !important;
-  box-shadow: none !important;
-}
-
-.current-user-player-card__stats {
-  display: flex;
-  align-items: stretch;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 2px;
-  padding-top: 8px;
-  border-top: 1px solid var(--teamchat-border);
-}
-
-.current-user-player-card__stat {
-  flex: 1;
-  min-width: 0;
-  padding: 5px 6px;
-  border-radius: 8px;
-  background: var(--teamchat-subtle-bg);
-  border: 1px solid var(--teamchat-border);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.current-user-player-card__stat-label {
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #6b7280;
-}
-
-.current-user-player-card__stat-value {
-  font-size: 12px;
-  font-weight: 600;
-  color: #2a2a2a;
-  line-height: 1.2;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .sidebar-search {
   width: 100%;
   border: 2px solid var(--teamchat-border);
-  border-radius: 14px;
+  border-radius: 11px;
   background: rgba(255, 255, 255, 0.82);
   color: var(--tc-text-main);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
-  padding: 10px 12px;
+  padding: 8px 11px;
   font: inherit;
+  font-size: 14px;
 }
 
 .sidebar-search:focus-visible {
@@ -380,15 +446,15 @@
 }
 
 .sidebar-sections section {
-  margin-top: 10px;
+  margin-top: 8px;
 }
 
 .sidebar h2 {
-  margin: 0 0 10px;
-  font-size: 13px;
+  margin: 0 0 7px;
+  font-size: 12px;
   color: var(--tc-text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
 }
 
 .sidebar ul {
@@ -398,7 +464,7 @@
 }
 
 .sidebar li {
-  margin-bottom: 4px;
+  margin-bottom: 3px;
 }
 
 .sidebar-item {
@@ -409,18 +475,18 @@
   gap: 8px;
   text-align: left;
   border: 1px solid transparent;
-  border-radius: 14px;
+  border-radius: 12px;
   background: rgba(255, 255, 255, 0.45);
   font: inherit;
   color: var(--tc-text-main);
-  padding: 10px 12px;
+  padding: 8px 10px;
   cursor: pointer;
 }
 
 .sidebar-item-main {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -435,10 +501,13 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 600;
+  font-size: 13px;
+  line-height: 1.3;
 }
 
 .sidebar-item-preview {
   font-size: 12px;
+  line-height: 1.3;
   color: var(--tc-text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -454,7 +523,75 @@
 .sidebar-item-active {
   border-color: color-mix(in srgb, var(--teamchat-accent) 42%, transparent);
   background: color-mix(in srgb, var(--teamchat-soft-bg) 85%, #ffffff);
-  box-shadow: 0 8px 18px color-mix(in srgb, var(--teamchat-accent) 12%, transparent);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--teamchat-accent) 10%, transparent);
+}
+
+/* Sidebar list density (slightly roomier than ultra-compact) */
+.sidebar .app-title {
+  font-size: 17px;
+  line-height: 1.15;
+}
+
+.sidebar .avatar-sm {
+  width: 30px;
+  height: 30px;
+  font-size: 11px;
+}
+
+.sidebar .sidebar-item .pet-avatar.pet-avatar {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  min-height: 34px;
+  font-size: 11px;
+}
+
+.sidebar .sidebar-item .presence-dot {
+  width: 8px;
+  height: 8px;
+  right: -1px;
+  bottom: -1px;
+}
+
+.sidebar .new-group-button {
+  padding: 6px 11px;
+  font-size: 12px;
+  border-radius: 11px;
+  box-shadow: 0 7px 16px color-mix(in srgb, var(--teamchat-accent) 20%, transparent);
+}
+
+.sidebar .unread-badge {
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  font-size: 11px;
+}
+
+.sidebar .sidebar-item:hover {
+  transform: translateY(-1px);
+}
+
+.sidebar .current-user-player-card {
+  padding: 10px 10px 11px;
+  gap: 9px;
+}
+
+.sidebar .current-user-player-card__top {
+  gap: 8px;
+}
+
+.sidebar .current-user-player-card .player-avatar,
+.sidebar .current-user-player-card .current-user-avatar {
+  width: 30px;
+  height: 30px;
+}
+
+.sidebar .current-user-player-card__name {
+  font-size: 14px;
+}
+
+.sidebar .current-user-player-card__xp-rect {
+  height: 7px;
 }
 
 .unread-badge {
@@ -498,10 +635,14 @@
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  height: auto;
   min-height: 0;
   overflow: visible;
   background: #fff;
+}
+
+/* Conversation: clip the column so the composer stays in view and .message-list scrolls */
+.chat-panel:has(.chat-input-bar) {
+  overflow: hidden;
 }
 
 .chat-panel.center-column {
@@ -525,6 +666,18 @@
   box-sizing: border-box;
 }
 
+.chat-panel-inner:has(.chat-input-bar) {
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Dashboard may exceed column height once shell is viewport-capped */
+.chat-panel-inner:has(.team-pet-dashboard) {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
 .center-content-inner {
   width: 100%;
   max-width: none;
@@ -540,6 +693,11 @@
   overflow: visible;
 }
 
+.chat-panel-body:has(.message-list) {
+  overflow: hidden;
+  min-height: 0;
+}
+
 /* Team map: main map area scrolls; body does not double-scroll the whole column */
 .chat-panel-inner:has(.team-pet-dashboard) .chat-panel-body {
   flex: 1;
@@ -548,14 +706,115 @@
   padding-bottom: 0;
 }
 
+.chat-panel.center-column:has(.team-pet-dashboard) {
+  padding: 10px 8px 12px;
+  gap: 8px;
+}
+
+.chat-panel-inner:has(.team-pet-dashboard) {
+  gap: 8px;
+}
+
 .chat-panel-inner:has(.team-pet-dashboard) .chat-error {
   padding-bottom: 4px;
   flex-shrink: 0;
 }
 
-/* Team map: keep a light blend at the bar; vertical gap comes from .chat-panel-inner */
-.chat-panel-inner:has(.team-pet-dashboard) .identity-bar {
+.identity-bar-modal-root {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(20px, env(safe-area-inset-top, 0px)) max(20px, env(safe-area-inset-right, 0px))
+    max(20px, env(safe-area-inset-bottom, 0px)) max(20px, env(safe-area-inset-left, 0px));
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.identity-bar-modal-root > * {
+  pointer-events: auto;
+}
+
+.identity-bar-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: rgba(15, 23, 42, 0.48);
+  cursor: pointer;
+}
+
+.identity-bar-modal-backdrop:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: -4px;
+}
+
+.identity-bar-modal-sheet {
+  position: relative;
+  z-index: 1;
+  width: min(580px, calc(100vw - 32px));
+  max-height: min(92vh, 780px);
+  overflow: auto;
+  border-radius: 24px;
+  box-shadow:
+    0 24px 48px rgba(15, 23, 42, 0.2),
+    0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.identity-bar-modal-sheet .identity-bar {
+  width: 100%;
+  min-height: 0;
+  margin: 0;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
   background: transparent;
+}
+
+.identity-bar-header--with-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.identity-bar-close {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.95);
+  color: #475569;
+  font-size: 24px;
+  line-height: 1;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.identity-bar-close:hover {
+  background: rgba(15, 23, 42, 0.06);
+  color: #0f172a;
+}
+
+.identity-bar-close:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--teamchat-accent) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.identity-bar--modal .identity-bar-title {
+  flex: 1;
+  min-width: 0;
 }
 
 .identity-bar {
@@ -612,22 +871,22 @@
 .pet-picker-grid,
 .identity-pet-grid {
   display: grid;
-  grid-template-rows: repeat(2, 58px);
-  grid-auto-flow: column;
-  grid-auto-columns: 64px;
-  gap: 18px 34px;
-  justify-content: start;
+  /* 24 pets → 4 rows × 6 cols — no inner scroll at current asset count */
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-auto-rows: minmax(54px, auto);
+  gap: 8px 10px;
+  justify-content: stretch;
   align-items: center;
   justify-items: center;
-  overflow-x: auto;
-  overflow-y: visible;
-  padding: 4px 0;
+  overflow: visible;
   max-height: none;
+  padding: 2px 0 8px;
+  width: 100%;
 }
 
 .pet-option {
-  width: 56px;
-  height: 56px;
+  width: 50px;
+  height: 50px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -642,15 +901,15 @@
 
 .pet-option img,
 .pet-option .pet-avatar {
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   object-fit: contain;
 }
 
 .pet-option.selected,
 .pet-option.pet-option--selected {
-  width: 66px;
-  height: 66px;
+  width: 56px;
+  height: 56px;
   box-shadow:
     0 0 0 3px color-mix(in srgb, var(--teamchat-accent) 22%, transparent),
     0 10px 24px color-mix(in srgb, var(--teamchat-accent) 16%, transparent);
@@ -713,6 +972,11 @@
   filter: brightness(1.02);
 }
 
+.identity-bar--modal .identity-bar-save {
+  right: 84px;
+  top: 20px;
+}
+
 .right-panel.updates-panel {
   grid-column: 3;
   grid-row: 1;
@@ -723,6 +987,562 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* Allow the outdent collapse handle (») to sit just left of the column without clipping */
+  overflow-x: visible;
+  overflow-y: hidden;
+}
+
+/* Right hub: unified daily card + widgets, scrolls as one column */
+.hub-rail {
+  min-height: 0;
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
+}
+
+.hub-rail-panel-toolbar {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 8px 14px 6px;
+  border-bottom: 1px solid color-mix(in srgb, var(--tc-border-soft) 75%, transparent);
+}
+
+.hub-rail-scroll-hide {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 12px;
+  border: 1.5px solid var(--tc-border-soft);
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--teamchat-accent);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.hub-rail-scroll-hide:hover {
+  background: color-mix(in srgb, var(--teamchat-soft-bg) 45%, #ffffff);
+  border-color: color-mix(in srgb, var(--teamchat-accent) 28%, var(--tc-border-soft));
+}
+
+.hub-rail-scroll-hide:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--teamchat-accent) 45%, transparent);
+  outline-offset: 2px;
+}
+
+.hub-rail-scroll-hide-chevron {
+  font-size: 16px;
+  line-height: 1;
+  opacity: 0.88;
+}
+
+.hub-rail--scroll-hidden {
+  justify-content: flex-start;
+}
+
+.hub-rail-restore-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 28px 12px;
+  min-height: 180px;
+}
+
+.hub-rail-scroll-show {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 14px 16px;
+  border: 1.5px solid var(--tc-border-soft);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--teamchat-accent);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  max-width: 100%;
+  box-shadow: 0 8px 20px rgba(34, 22, 48, 0.08);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.hub-rail-scroll-show:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 26px rgba(34, 22, 48, 0.1);
+}
+
+.hub-rail-scroll-show:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--teamchat-accent) 45%, transparent);
+  outline-offset: 2px;
+}
+
+.hub-rail-scroll-show-chevron {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.hub-rail-scroll-show-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hub-rail-scroll {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 10px 0 16px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  position: relative;
+  z-index: 1;
+}
+
+/* Sticky edge tab when column is hidden: scrolls with the shell, stays in view like the open hub rail */
+.hub-rail-edge-tab-overlay {
+  grid-column: 2;
+  grid-row: 1;
+  width: 52px;
+  max-width: 100%;
+  justify-self: end;
+  align-self: stretch;
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-start;
+  pointer-events: none;
+  z-index: 25;
+  min-height: 0;
+}
+
+.hub-rail-edge-tab {
+  position: sticky;
+  top: max(24px, calc(50vh - 48px));
+  margin-top: 0;
+  margin-bottom: auto;
+  pointer-events: auto;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 8px 14px 10px;
+  margin-right: 0;
+  border: 1.5px solid var(--tc-border-soft);
+  border-right: none;
+  border-radius: 16px 0 0 16px;
+  background: rgba(255, 255, 255, 0.97);
+  color: var(--teamchat-accent);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  box-shadow: -4px 8px 24px rgba(34, 22, 48, 0.12);
+  backdrop-filter: blur(8px);
+  transition: background-color 0.15s ease, box-shadow 0.15s ease, padding 0.15s ease;
+}
+
+.hub-rail-edge-tab:hover {
+  background: #ffffff;
+  box-shadow: -6px 12px 28px rgba(34, 22, 48, 0.14);
+  padding-right: 12px;
+}
+
+.hub-rail-edge-tab:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--teamchat-accent) 45%, transparent);
+  outline-offset: 2px;
+}
+
+.hub-rail-edge-tab-chevron {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.hub-rail-edge-tab-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  transform: rotate(180deg);
+}
+
+@media (max-width: 900px) {
+  .hub-rail-edge-tab-overlay {
+    grid-column: 1;
+    justify-self: end;
+  }
+}
+
+.hub-daily-card {
+  margin: 0 12px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  /* Do not flex-grow: growing here steals column height and scrolls Daily Updates above the fold */
+  flex: 0 1 auto;
+  max-height: min(48vh, 560px);
+  border: 1.5px solid var(--tc-border-soft);
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(252, 249, 255, 0.92) 100%);
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--tc-primary) 8%, transparent);
+  overflow: hidden;
+}
+
+.hub-daily-card--collapsed {
+  flex: 0 0 auto;
+  max-height: none;
+}
+
+.hub-daily-card__collapsible {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.hub-daily-card__collapsible[hidden] {
+  display: none !important;
+}
+
+.updates-header-trailing {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.hub-daily-card__header.updates-header {
+  padding-top: 14px;
+  border-bottom-color: color-mix(in srgb, var(--tc-border-soft) 88%, var(--teamchat-accent));
+}
+
+.hub-daily-eyebrow {
+  display: block;
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tc-text-muted);
+}
+
+.hub-daily-card .updates-header h3 {
+  margin-top: 0;
+}
+
+.hub-daily-card .updates-composer {
+  border-bottom-color: color-mix(in srgb, var(--tc-border-soft) 90%, transparent);
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.hub-daily-card .updates-timeline {
+  flex: 1;
+  min-height: 100px;
+  overflow: auto;
+  padding-bottom: 10px;
+}
+
+.hub-daily-card__error {
+  margin: 0;
+  padding: 8px 14px 12px;
+  flex-shrink: 0;
+}
+
+.hub-rail-widgets {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 12px 8px;
+  flex-shrink: 0;
+}
+
+.hub-widget {
+  border: 1.5px solid var(--tc-border-soft);
+  border-radius: 18px;
+  padding: 12px 14px 14px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 8px 22px rgba(34, 22, 48, 0.06);
+  display: flex;
+  flex-direction: column;
+}
+
+.hub-widget--collapsed {
+  padding-bottom: 11px;
+}
+
+.hub-widget-header {
+  margin-bottom: 10px;
+}
+
+.hub-widget-header--collapsible {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 0;
+  width: 100%;
+}
+
+.hub-widget-header-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.hub-widget-header--collapsible .hub-widget-title {
+  margin: 0;
+}
+
+.hub-widget:not(.hub-widget--collapsed) .hub-widget-body {
+  margin-top: 2px;
+}
+
+.hub-widget-toggle {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  margin: 0;
+  border: 1.5px solid var(--tc-border-soft);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--teamchat-accent);
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.hub-widget-toggle:hover {
+  background: color-mix(in srgb, var(--teamchat-soft-bg) 55%, #ffffff);
+  border-color: color-mix(in srgb, var(--teamchat-accent) 28%, var(--tc-border-soft));
+}
+
+.hub-widget-toggle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--teamchat-accent) 45%, transparent);
+  outline-offset: 2px;
+}
+
+.hub-widget-toggle-icon {
+  display: block;
+  line-height: 1;
+}
+
+.hub-widget-body {
+  min-width: 0;
+}
+
+.hub-widget-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--teamchat-accent);
+}
+
+.hub-widget-caption {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--tc-text-muted);
+  line-height: 1.35;
+}
+
+.hub-widget-empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--tc-text-muted);
+  line-height: 1.45;
+}
+
+.hub-activity-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hub-activity-row {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  text-align: left;
+  border: 1px solid color-mix(in srgb, var(--tc-border-soft) 85%, transparent);
+  border-radius: 14px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.hub-activity-row:hover {
+  background: color-mix(in srgb, var(--teamchat-soft-bg) 55%, #ffffff);
+  border-color: color-mix(in srgb, var(--teamchat-accent) 22%, var(--tc-border-soft));
+}
+
+.hub-activity-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hub-activity-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #2d2435;
+}
+
+.hub-activity-preview {
+  font-size: 12px;
+  color: #6f637e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hub-activity-time {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tc-text-muted);
+}
+
+.hub-leader-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hub-leader-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.hub-leader-rank {
+  width: 22px;
+  height: 22px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 800;
+  color: #fff;
+  background: linear-gradient(135deg, var(--teamchat-accent) 0%, var(--teamchat-accent-hover) 100%);
+  flex-shrink: 0;
+}
+
+.hub-leader-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hub-leader-name-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hub-leader-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #2d2435;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hub-leader-level {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--teamchat-accent);
+  flex-shrink: 0;
+}
+
+.hub-leader-track {
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--teamchat-border) 35%, #ede8f4);
+  overflow: hidden;
+}
+
+.hub-leader-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--teamchat-accent), var(--teamchat-accent-hover));
+}
+
+.hub-leader-xp {
+  font-size: 11px;
+  color: var(--tc-text-muted);
+  font-weight: 600;
+}
+
+.hub-event-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hub-event-card {
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--teamchat-soft-bg) 40%, #ffffff);
+  border: 1px solid color-mix(in srgb, var(--tc-border-soft) 90%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.hub-event-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #2d2435;
+}
+
+.hub-event-detail {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--teamchat-accent);
+}
+
+.hub-event-hint {
+  font-size: 11px;
+  color: var(--tc-text-muted);
+  line-height: 1.35;
 }
 
 .updates-header {
@@ -1000,6 +1820,7 @@
 }
 
 .panel-header {
+  flex-shrink: 0;
   min-height: 72px;
   padding: 12px 16px;
   border-bottom: 1px solid #eee;
@@ -1224,6 +2045,7 @@
 }
 
 .typing-indicator {
+  flex-shrink: 0;
   margin: 2px 24px 8px;
   color: #6c6078;
   font-size: 12px;
@@ -1334,21 +2156,33 @@
   transform: scale(1.06);
 }
 
+.chat-input-emoji-slot {
+  position: relative;
+  flex-shrink: 0;
+}
+
 .composer-wrapper {
   flex: 1;
-  position: relative;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .chat-input-bar textarea {
+  flex: 1;
+  min-width: 0;
   width: 100%;
   min-height: 42px;
   height: 42px;
-  max-height: 140px;
-  resize: vertical;
+  max-height: 42px;
+  resize: none;
+  overflow: hidden;
   border: 1px solid #eee;
   border-radius: 14px;
   padding: 10px 12px;
   font: inherit;
+  line-height: 1.25;
 }
 
 .chat-input-bar .emoji-toggle {
@@ -1356,9 +2190,10 @@
   background: #fff;
   color: var(--teamchat-accent);
   border-radius: 12px;
-  width: 40px;
-  height: 40px;
-  min-width: 40px;
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  padding: 0;
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
@@ -1369,12 +2204,14 @@
   background: #fff;
   color: var(--teamchat-accent);
   border-radius: 12px;
-  width: 40px;
-  height: 40px;
-  min-width: 40px;
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  padding: 0;
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
+  flex-shrink: 0;
 }
 
 .attachment-input {
@@ -1412,25 +2249,29 @@
   background: #f8f6fb;
 }
 
-.chat-input-bar button:not(.emoji-toggle):not(.attachment-toggle) {
+.chat-input-bar .chat-input-send {
   border: 1px solid var(--teamchat-accent);
   background: var(--teamchat-accent);
   color: #fff;
-  border-radius: 14px;
+  border-radius: 12px;
+  width: 42px;
+  min-width: 42px;
   height: 42px;
-  padding: 0 20px;
-  font-size: 13px;
+  padding: 0 4px;
+  font-size: 10px;
   font-weight: 600;
+  line-height: 1.1;
   cursor: pointer;
   box-shadow: none;
+  flex-shrink: 0;
 }
 
-.chat-input-bar button:not(.emoji-toggle):not(.attachment-toggle):hover:not(:disabled) {
+.chat-input-bar .chat-input-send:hover:not(:disabled) {
   background: var(--teamchat-accent-hover);
   border-color: var(--teamchat-accent-hover);
 }
 
-.chat-input-bar button:not(.emoji-toggle):not(.attachment-toggle):disabled {
+.chat-input-bar .chat-input-send:disabled {
   opacity: 0.7;
   cursor: not-allowed;
 }
@@ -1446,6 +2287,7 @@
 }
 
 .chat-error {
+  flex-shrink: 0;
   min-height: 18px;
   margin: 0;
   padding: 0 24px 12px;
@@ -1522,8 +2364,8 @@
   max-width: none;
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding: 0 12px;
+  gap: 10px;
+  padding: 0 4px;
   box-sizing: border-box;
   overflow: visible;
 }
@@ -1531,43 +2373,76 @@
 .team-pet-dashboard-header {
   flex-shrink: 0;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 10px;
-  padding-left: 24px;
-  padding-right: 24px;
+  gap: 12px;
+  margin-bottom: 6px;
+  padding-left: 4px;
+  padding-right: 4px;
   box-sizing: border-box;
+  width: 100%;
+}
+
+.team-pet-dashboard-header-title {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
 }
 
 .team-pet-dashboard-header-actions {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
-.team-pet-dashboard-header-actions .team-action-button {
-  border: 2px solid color-mix(in srgb, var(--teamchat-accent) 24%, transparent);
-  border-radius: 28px;
-  background: rgba(255, 255, 255, 0.92);
-  color: var(--teamchat-accent);
-  font-weight: 800;
-  min-height: 58px;
-  padding: 0 18px;
+.team-dashboard-header-btn {
+  margin: 0;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  border-radius: 10px;
+  min-height: 38px;
+  box-sizing: border-box;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    color 0.15s ease,
+    filter 0.15s ease;
+}
+
+.team-dashboard-header-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--teamchat-accent) 45%, transparent);
+  outline-offset: 2px;
+}
+
+.team-dashboard-header-btn--logout {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  text-align: center;
-  white-space: nowrap;
-  box-shadow: 0 10px 24px color-mix(in srgb, var(--teamchat-accent) 8%, transparent);
+  width: 38px;
+  height: 38px;
+  min-height: 38px;
+  padding: 0;
+  border: 1px solid var(--tc-border-soft);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--tc-text-muted);
 }
 
-.team-pet-dashboard-header-actions .team-action-button:hover {
-  background: color-mix(in srgb, rgba(255, 255, 255, 0.92) 76%, var(--teamchat-soft-bg));
+.team-dashboard-header-btn--logout:hover {
+  background: #f4f2f7;
+  color: var(--tc-text-main);
+  border-color: color-mix(in srgb, var(--tc-border-soft) 55%, var(--tc-text-muted));
 }
 
-.updates-toggle-mobile--dashboard {
-  display: none;
+.team-dashboard-header-btn-logout-icon {
+  display: block;
+  width: 18px;
+  height: 18px;
 }
 
 .team-pet-dashboard-title {
@@ -1576,7 +2451,7 @@
   line-height: 1.2;
   font-weight: 800;
   letter-spacing: -0.02em;
-  color: var(--teamchat-accent);
+  color: var(--tc-text-main);
 }
 
 .team-pet-dashboard-subtitle {
@@ -1584,54 +2459,6 @@
   font-size: 14px;
   font-weight: 400;
   color: var(--tc-text-muted);
-}
-
-.team-pet-dashboard-back {
-  border: 2px solid color-mix(in srgb, var(--teamchat-accent) 24%, transparent);
-  border-radius: 28px;
-  background: rgba(255, 255, 255, 0.92);
-  color: var(--teamchat-accent);
-  min-height: 58px;
-  font-size: 16px;
-  font-weight: 800;
-  cursor: pointer;
-  text-decoration: none;
-  padding: 0 18px;
-  box-shadow: 0 10px 24px color-mix(in srgb, var(--teamchat-accent) 8%, transparent);
-}
-
-.team-pet-dashboard-back:hover {
-  color: var(--teamchat-accent);
-}
-
-.team-pet-dashboard-back--quiet {
-  opacity: 1;
-}
-
-.team-pet-dashboard-back--quiet:hover {
-  color: var(--teamchat-accent);
-  background: color-mix(in srgb, rgba(255, 255, 255, 0.92) 76%, var(--teamchat-soft-bg));
-  opacity: 1;
-}
-
-.logout-btn {
-  border: 2px solid color-mix(in srgb, var(--teamchat-accent) 24%, transparent);
-  border-radius: 28px;
-  background: rgba(255, 255, 255, 0.92);
-  color: var(--teamchat-accent);
-  padding: 0 18px;
-  min-height: 58px;
-  font-size: 16px;
-  font-weight: 800;
-  cursor: pointer;
-  box-shadow: 0 10px 24px color-mix(in srgb, var(--teamchat-accent) 8%, transparent);
-  transition: transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
-}
-
-.logout-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 12px 22px rgba(116, 72, 180, 0.12);
-  background: color-mix(in srgb, rgba(255, 255, 255, 0.92) 76%, var(--teamchat-soft-bg));
 }
 
 .team-pet-dashboard-map-area {
@@ -1674,8 +2501,11 @@
 }
 
 .dashboard-map-stage {
-  width: min(100%, 920px);
+  /* Square map: use full column width, only capped by viewport height (no fixed 540px cap) */
+  width: min(100%, calc(100svh - 180px));
+  max-width: 100%;
   aspect-ratio: 1 / 1;
+  height: auto;
   position: relative;
   margin: 0 auto;
   border-radius: 24px;
@@ -1715,7 +2545,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   margin: 0;
   padding: 0;
   border: none;
@@ -2135,9 +2965,24 @@
   inset: 0;
   background: rgba(17, 10, 26, 0.35);
   display: grid;
-  place-items: center;
+  justify-items: center;
+  align-items: center;
+  /* When the modal is taller than the viewport, scroll the backdrop so the footer stays reachable */
+  overflow-x: hidden;
+  overflow-y: auto;
   z-index: 20;
   padding: 24px;
+  /*
+   * Modals mount as siblings of `.app-shell`, not inside it — they do not inherit --teamchat-*.
+   * Without these, `background: var(--teamchat-accent)` is invalid (transparent) while text stays white.
+   * `shellThemeStyle` from MainLayout overrides with the live theme; these match :root defaults.
+   */
+  --teamchat-accent: var(--tc-primary);
+  --teamchat-accent-hover: var(--tc-primary-hover);
+  --teamchat-soft-bg: var(--tc-primary-soft);
+  --teamchat-subtle-bg: var(--tc-primary-soft-2);
+  --teamchat-border: var(--tc-primary-border);
+  --teamchat-text: var(--tc-primary-text);
 }
 
 .modal-card {
@@ -2160,8 +3005,9 @@
 .modal-card--new-group .modal-content {
   display: flex;
   flex-direction: column;
-  max-height: 80vh;
-  min-height: 560px;
+  /* Fit within the viewport so primary actions stay reachable (no fixed 560px floor) */
+  max-height: min(80vh, 85dvh);
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -2179,8 +3025,9 @@
 }
 
 .modal-card--new-group .member-options.new-group-modal__member-list {
-  max-height: none;
-  overflow: visible;
+  max-height: min(220px, 38vh);
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .modal-form--new-group {
@@ -2216,12 +3063,14 @@
   border-color: var(--teamchat-accent-hover);
 }
 
+/* Stay clearly visible when disabled (filled submit can read as “missing” on pale gray) */
 .modal-card--new-group .modal-footer .new-group-modal__create:disabled {
   opacity: 1;
   cursor: not-allowed;
-  background: #d1c4e3;
-  border-color: #c4b5d9;
-  color: #7a6b8c;
+  background: color-mix(in srgb, var(--teamchat-soft-bg) 55%, #ffffff);
+  border: 1.5px solid color-mix(in srgb, var(--teamchat-accent) 32%, #d5cbe6);
+  color: var(--teamchat-accent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
 .modal-card--new-group .modal-footer .ghost-button {
@@ -2436,7 +3285,7 @@
   background: #f7f6f9;
 }
 
-/* Below ~1230px, full-bleed width minus margins is under 1100px — drop min-width to avoid horizontal overflow */
+/* Narrow viewports: allow the shell to shrink with min(calc(100vw - 32px), …) without forcing 1100px */
 @media (max-width: 1230px) {
   .app-shell {
     min-width: 0;
@@ -2450,6 +3299,9 @@
 
   .sidebar {
     grid-column: 1;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    overflow: visible;
   }
 
   .chat-panel {
@@ -2496,9 +3348,6 @@
     filter: brightness(1.02);
   }
 
-  .updates-toggle-mobile--dashboard {
-    display: none;
-  }
 }
 
 @media (max-width: 900px) {
@@ -2555,6 +3404,30 @@
     transform: translateX(0);
   }
 
+  .hub-rail-scroll {
+    flex: 1;
+    min-height: 0;
+    padding: 0 0 calc(env(safe-area-inset-bottom, 0px) + 12px);
+  }
+
+  .hub-rail-panel-toolbar {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 6px);
+  }
+
+  .hub-daily-card {
+    max-height: none;
+    flex: 0 1 auto;
+    margin: 0;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    box-shadow: none;
+  }
+
+  .hub-rail-widgets {
+    padding: 0 14px 12px;
+  }
+
   .updates-header,
   .updates-composer,
   .updates-timeline {
@@ -2581,20 +3454,6 @@
     background: linear-gradient(135deg, var(--teamchat-accent) 0%, var(--teamchat-accent-hover) 100%);
     color: #fff;
     box-shadow: 0 14px 28px color-mix(in srgb, var(--teamchat-accent) 28%, transparent);
-  }
-
-  .updates-toggle-mobile--dashboard {
-    position: static;
-    inset: auto;
-    transform: none;
-    z-index: auto;
-    box-shadow: 0 10px 24px color-mix(in srgb, var(--teamchat-accent) 8%, transparent);
-    border: 2px solid color-mix(in srgb, var(--teamchat-accent) 24%, transparent);
-    border-radius: 28px;
-    background: rgba(255, 255, 255, 0.92);
-    color: var(--teamchat-accent);
-    min-height: 58px;
-    padding: 0 18px;
   }
 
   .chat-panel.center-column {
@@ -2668,7 +3527,10 @@
 
   .chat-input-bar textarea {
     max-height: 42px;
+    min-height: 42px;
+    height: 42px;
     resize: none;
+    overflow: hidden;
   }
 
   .team-pet-dashboard-inner {
@@ -2691,12 +3553,16 @@
     margin-bottom: 10px;
     flex-direction: column;
     align-items: stretch;
-    gap: 12px;
+    gap: 10px;
+  }
+
+  .team-pet-dashboard-header-title {
+    flex: none;
   }
 
   .team-pet-dashboard-title {
-    font-size: 24px;
-    margin-bottom: 18px;
+    font-size: 22px;
+    margin-bottom: 0;
   }
 
   .team-pet-dashboard-subtitle {
@@ -2706,49 +3572,28 @@
 
   .team-pet-dashboard-header-actions {
     width: 100%;
-    display: grid;
-    grid-template-columns: 1.25fr 1fr 1fr;
-    gap: 9px;
-    margin-top: 16px;
-    margin-bottom: 22px;
+    display: flex;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 0;
+    margin-bottom: 4px;
     align-items: center;
   }
 
-  .team-pet-dashboard-back,
-  .logout-btn,
-  .team-pet-dashboard-header-actions .team-action-button {
-    min-width: 0;
-    height: 50px;
-    min-height: 50px;
-    border-radius: 26px;
-    font-size: clamp(12px, 3.2vw, 15px);
-    line-height: 1.05;
-    padding: 0 10px;
-    text-align: center;
+  .team-dashboard-header-btn--logout {
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
   }
 
-  .team-pet-dashboard-header-actions .team-action-button:first-child {
-    font-size: clamp(11px, 3vw, 14px);
-  }
-
-  .team-pet-dashboard-header-actions .team-action-button-updates {
-    display: inline-flex;
-    grid-column: auto !important;
-    width: auto !important;
-    position: static !important;
-    transform: none !important;
-    inset: auto !important;
-    margin: 0;
-    background: rgba(255, 255, 255, 0.92);
-    color: var(--teamchat-accent);
-    border: 2px solid color-mix(in srgb, var(--teamchat-accent) 24%, transparent);
+  .team-dashboard-header-btn-logout-icon {
+    width: 20px;
+    height: 20px;
   }
 
   .dashboard-map-stage {
-    width: 100%;
-    max-width: 100%;
     border-radius: 22px;
-    aspect-ratio: 1 / 1;
   }
 
   .app-shell {
@@ -2818,33 +3663,30 @@
 
   .pet-picker-grid,
   .identity-pet-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(52px, 1fr));
-    grid-auto-flow: row;
-    grid-auto-columns: unset;
-    grid-template-rows: none;
-    gap: 16px 18px;
-    justify-content: stretch;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-auto-rows: minmax(50px, auto);
+    gap: 6px 8px;
     overflow: visible;
-    padding: 8px 0;
+    max-height: none;
+    padding: 4px 0 6px;
   }
 
   .pet-option {
-    width: 54px;
-    height: 54px;
+    width: 46px;
+    height: 46px;
     justify-self: center;
   }
 
   .pet-option img,
   .pet-option .pet-avatar {
-    width: 42px;
-    height: 42px;
+    width: 36px;
+    height: 36px;
   }
 
   .pet-option.selected,
   .pet-option.pet-option--selected {
-    width: 60px;
-    height: 60px;
+    width: 52px;
+    height: 52px;
   }
 
   .identity-bar-color-row,
@@ -2889,20 +3731,13 @@
 
 @media (max-width: 390px) {
   .team-pet-dashboard-header-actions {
-    gap: 7px;
+    gap: 6px;
   }
 
-  .team-pet-dashboard-back,
-  .logout-btn,
-  .team-pet-dashboard-header-actions .team-action-button {
-    height: 48px;
-    min-height: 48px;
-    padding: 0 8px;
-    font-size: 12px;
-  }
-
-  .team-pet-dashboard-header-actions .team-action-button:first-child {
-    font-size: 11px;
+  .team-dashboard-header-btn--logout {
+    width: 42px;
+    height: 42px;
+    min-height: 42px;
   }
 }
 
@@ -2932,8 +3767,11 @@
 
   .pet-picker-grid,
   .identity-pet-grid {
-    grid-template-columns: repeat(4, minmax(44px, 1fr));
-    gap: 12px 12px;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-auto-rows: minmax(48px, auto);
+    gap: 5px 6px;
+    overflow: visible;
+    max-height: none;
   }
 
   .identity-bar {

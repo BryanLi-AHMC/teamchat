@@ -17,21 +17,48 @@ teamchat/
 
 ## Local Setup
 
-### 1) Backend
+From the **repository root** (so the root `package.json` and `concurrently` are available):
+
 ```bash
-cd backend
 npm install
-cp .env.example .env
+npm run install:all
+```
+
+Then either run **API + UI together**:
+
+```bash
 npm run dev
 ```
 
-### 2) Frontend
+Or run them in separate terminals:
+
 ```bash
-cd frontend
-npm install
-cp .env.example .env
-npm run dev
+npm run dev --prefix backend
+npm run dev --prefix frontend
 ```
+
+### First-time `.env` files
+
+```bash
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
+```
+
+Fill in Supabase values in both files.
+
+### Port 3003 already in use (`EADDRINUSE`)
+
+If `npm run dev` starts Vite but the **backend line** shows `EADDRINUSE`, nothing in that run is listening for Socket.IO on 3003 (or an old stray process is). Chat will show **realtime timeout** until you free the port and restart.
+
+Stop the other terminal that is running the API, or on Windows:
+
+```powershell
+Get-NetTCPConnection -LocalPort 3003 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+```
+
+Then run `npm run dev` again from the repo root and confirm the log includes **`=== TEAMCHAT BACKEND STARTED ===`**.
+
+Or change `PORT` in `backend/.env` and set `VITE_API_BASE_URL`, `VITE_SOCKET_URL`, and the `target` in `frontend/vite.config.ts` (`/socket.io` proxy) to the same port.
 
 ## Environment Variables
 
@@ -40,7 +67,7 @@ npm run dev
 PORT=3003
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
-FRONTEND_ORIGINS=http://localhost:5173,http://localhost:5177,https://teamchat-cr5.pages.dev,https://teamchat.pages.dev,https://teamchat.wanpanel.ai
+FRONTEND_ORIGINS=http://localhost:5173,http://localhost:5174,http://localhost:5177,https://teamchat-cr5.pages.dev,https://teamchat.pages.dev,https://teamchat.wanpanel.ai
 ```
 
 ### Frontend (`frontend/.env`)
