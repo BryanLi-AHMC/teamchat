@@ -1565,7 +1565,9 @@ function MainLayout() {
     const probe = await probeTeamchatApiHealth();
     if (!probe.ok) {
       throw new Error(
-        `TeamChat API not reachable (${import.meta.env.VITE_API_BASE_URL ?? "VITE_API_BASE_URL"}): ${probe.message}. From the repo root run \`npm run dev\` and confirm the log shows "TEAMCHAT BACKEND STARTED" and no EADDRINUSE on port 3003.`
+        import.meta.env.VITE_API_BASE_URL
+          ? `TeamChat API not reachable (${import.meta.env.VITE_API_BASE_URL}): ${probe.message}`
+          : `TeamChat API: ${probe.message}`
       );
     }
     const wait = await waitForSocketConnection(socket, SOCKET_READY_WAIT_MS);

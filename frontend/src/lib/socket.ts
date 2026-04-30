@@ -54,28 +54,39 @@ export const SOCKET_IO_HANDSHAKE_TIMEOUT_MS = 12_000;
 export const SOCKET_READY_WAIT_MS = 22_000;
 
 /**
- * Dev: if `VITE_SOCKET_URL` is set, connect there directly (avoids flaky Vite proxy and matches REST).
- * If unset, use same origin so Vite proxies `/socket.io` to the API (see vite.config.ts).
- * Production: `VITE_SOCKET_URL` or localhost default.
+ * Dev: `VITE_SOCKET_URL` if set, else Vite origin (proxy). Production: `VITE_SOCKET_URL`, else same host as
+ * `VITE_API_BASE_URL` with `/api` stripped (so one env is enough for Pages deploys).
  */
 export function getResolvedSocketUrl(): string {
-  const fromEnv = import.meta.env.VITE_SOCKET_URL?.trim();
+  const socketEnv = import.meta.env.VITE_SOCKET_URL?.trim() ?? "";
   if (import.meta.env.DEV) {
-    if (fromEnv) {
-      return fromEnv;
+    if (socketEnv) {
+      return socketEnv;
     }
     if (typeof window !== "undefined" && window.location?.origin) {
       return window.location.origin;
     }
+    return socketEnv || "http://localhost:3003";
   }
-  return fromEnv || "http://localhost:3003";
+  if (socketEnv) {
+    return socketEnv;
+  }
+  const apiBase = import.meta.env.VITE_API_BASE_URL?.replace(/\/+$/, "") ?? "";
+  if (apiBase.endsWith("/api")) {
+    return apiBase.slice(0, -"/api".length);
+  }
+  return "http://localhost:3003";
 }
 
 /** GET `VITE_API_BASE_URL/health` — fast check that the HTTP API is up (Socket.IO shares the same host/port). */
 export async function probeTeamchatApiHealth(): Promise<{ ok: true } | { ok: false; message: string }> {
   const base = import.meta.env.VITE_API_BASE_URL?.replace(/\/+$/, "") ?? "";
   if (!base) {
-    return { ok: false, message: "VITE_API_BASE_URL is unset" };
+    return {
+      ok: false,
+      message:
+        "VITE_API_BASE_URL was not set when this bundle was built. In Cloudflare Pages: Settings → Environment variables → add VITE_API_BASE_URL (and other VITE_* from frontend/.env.example) for Production, then redeploy. Vite bakes these in at build time, not runtime.",
+    };
   }
   try {
     const res = await fetch(`${base}/health`, { method: "GET" });
