@@ -49,9 +49,13 @@ export const isAllowedOrigin = (origin: string | undefined): boolean => {
   }
 
   const allowed = env.frontendOrigins.includes(origin);
+  // Legacy Pages URL shape: https://teamchat-<id>.pages.dev
   const isTeamChatPagesDev =
-    /^https:\/\/teamchat-[a-z0-9-]+\.pages\.dev$/.test(origin) ||
+    /^https:\/\/teamchat-[a-z0-9-]+\.pages\.dev$/i.test(origin) ||
     origin === "https://teamchat.pages.dev";
+  // Cloudflare Pages preview deploys: https://<hash>.teamchat-cr5.pages.dev
+  const isTeamChatCr5PagesPreview =
+    /^https:\/\/[a-z0-9-]+\.teamchat-cr5\.pages\.dev$/i.test(origin);
 
-  return allowed || isTeamChatPagesDev;
+  return allowed || isTeamChatPagesDev || isTeamChatCr5PagesPreview;
 };
