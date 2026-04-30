@@ -19,8 +19,87 @@ type AuthenticatedRequest = Request & {
 
 const normalizeEmail = (email: string | null | undefined): string => email?.trim().toLowerCase() ?? "";
 
-const selectInternalProfileFields =
-  "id,email,display_name,role,is_active,xp_total,points,level,streak";
+const PROFILE_SELECT_CANDIDATES = [
+  "id,email,display_name,role,is_active,xp_total,points,level,streak",
+  "id,email,display_name,role,is_active,level",
+  "id,email,display_name,role,is_active",
+] as const;
+
+type InternalProfileRow = {
+  id: string;
+  email: string;
+  display_name: string;
+  role: string;
+  is_active: boolean;
+  xp_total?: number | null;
+  points?: number | null;
+  level?: number | null;
+  streak?: number | null;
+};
+
+const INTERNAL_ROLE_FALLBACK = "internal";
+
+const normalizeInternalRole = (rawRole: unknown): string => {
+  const normalized = typeof rawRole === "string" ? rawRole.trim().toLowerCase() : "";
+  if (!normalized) {
+    return INTERNAL_ROLE_FALLBACK;
+  }
+  if (normalized === "it") {
+    return "it";
+  }
+  return normalized;
+};
+
+const withMappedProfileRole = (
+  profile: AuthenticatedRequest["currentProfile"] | null
+): AuthenticatedRequest["currentProfile"] | null => {
+  if (!profile) {
+    return null;
+  }
+  const mappedRole = normalizeInternalRole(profile.role);
+  if (mappedRole !== profile.role) {
+    console.warn("[auth/profile] role normalized", {
+      profileId: profile.id,
+      originalRole: profile.role ?? null,
+      mappedRole,
+    });
+  }
+  return {
+    ...profile,
+    role: mappedRole,
+  };
+};
+
+const isMissingColumnError = (error: unknown): boolean => {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const code = "code" in error ? String(error.code ?? "") : "";
+  const message = "message" in error ? String(error.message ?? "") : "";
+  return (
+    code === "42703" ||
+    (message.includes("column internal_profiles.") && message.includes("does not exist"))
+  );
+};
+
+const toAuthenticatedProfile = (
+  row: InternalProfileRow | null | undefined
+): AuthenticatedRequest["currentProfile"] | null => {
+  if (!row) {
+    return null;
+  }
+  return {
+    id: row.id,
+    email: row.email,
+    display_name: row.display_name,
+    role: row.role,
+    is_active: Boolean(row.is_active),
+    xp_total: Number(row.xp_total ?? 0),
+    points: Number(row.points ?? 0),
+    level: Number(row.level ?? 1),
+    streak: Number(row.streak ?? 0),
+  };
+};
 
 async function resolveProfileFromRequest(req: Request, res: Response, next: () => void) {
   try {
@@ -108,51 +187,91 @@ async function resolveProfileFromRequest(req: Request, res: Response, next: () =
       normalizedEmail,
     });
 
-    const { data: profileById, error: profileByIdError } = await supabaseAdmin
-      .from("internal_profiles")
-      .select(selectInternalProfileFields)
-      .eq("id", authUserId)
-      .maybeSingle();
-
-    if (profileByIdError) {
-      const reason = "profile_lookup_failed";
-      console.warn("[auth/profile] forbidden", {
-        branch: reason,
+    let profileByIdRaw: InternalProfileRow | null = null;
+    let profileByIdError: unknown = null;
+    for (let attempt = 0; attempt < PROFILE_SELECT_CANDIDATES.length; attempt += 1) {
+      const select = PROFILE_SELECT_CANDIDATES[attempt];
+      console.log("[auth/profile] internal_profiles query", {
+        strategy: "by_id",
+        table: "internal_profiles",
+        select,
+        filters: {
+          id: authUserId,
+          is_active: true,
+        },
+        attempt: attempt + 1,
+      });
+      const { data: byIdData, error: byIdError } = await supabaseAdmin
+        .from("internal_profiles")
+        .select(select)
+        .eq("id", authUserId)
+        .eq("is_active", true)
+        .maybeSingle();
+      if (!byIdError) {
+        profileByIdRaw = (byIdData as InternalProfileRow | null) ?? null;
+        profileByIdError = null;
+        break;
+      }
+      profileByIdError = byIdError;
+      console.error("[auth/profile] internal_profiles query failed", {
+        strategy: "by_id",
         authEmail,
         authUserId,
         normalizedEmail,
-        profileLookupError: profileByIdError.message,
+        select,
+        attempt: attempt + 1,
+        error: byIdError,
       });
-      res.status(403).json({
-        error: "Your account is not authorized for this portal.",
-        reason,
-        authEmail,
-      });
-      return;
+      if (!isMissingColumnError(byIdError)) {
+        break;
+      }
     }
 
-    const { data: profilesByEmail, error: profileByEmailError } = await supabaseAdmin
-      .from("internal_profiles")
-      .select(selectInternalProfileFields)
-      .eq("email", normalizedEmail)
-      .limit(25);
-
-    if (profileByEmailError) {
-      const reason = "stale_portal_check_failed";
-      console.warn("[auth/profile] forbidden", {
-        branch: reason,
+    let profilesByEmailRaw: InternalProfileRow[] = [];
+    let profileByEmailError: unknown = null;
+    for (let attempt = 0; attempt < PROFILE_SELECT_CANDIDATES.length; attempt += 1) {
+      const select = PROFILE_SELECT_CANDIDATES[attempt];
+      console.log("[auth/profile] internal_profiles query", {
+        strategy: "by_email_fallback",
+        table: "internal_profiles",
+        select,
+        filters: {
+          email: normalizedEmail,
+          is_active: true,
+        },
+        limit: 25,
+        attempt: attempt + 1,
+      });
+      const { data: byEmailData, error: byEmailError } = await supabaseAdmin
+        .from("internal_profiles")
+        .select(select)
+        .eq("email", normalizedEmail)
+        .eq("is_active", true)
+        .limit(25);
+      if (!byEmailError) {
+        profilesByEmailRaw = (byEmailData as InternalProfileRow[] | null) ?? [];
+        profileByEmailError = null;
+        break;
+      }
+      profileByEmailError = byEmailError;
+      console.error("[auth/profile] internal_profiles query failed", {
+        strategy: "by_email_fallback",
         authEmail,
         authUserId,
         normalizedEmail,
-        profileLookupError: profileByEmailError.message,
+        select,
+        attempt: attempt + 1,
+        error: byEmailError,
       });
-      res.status(403).json({
-        error: "Your account is not authorized for this portal.",
-        reason,
-        authEmail,
-      });
-      return;
+      if (!isMissingColumnError(byEmailError)) {
+        break;
+      }
     }
+
+    const profileById = toAuthenticatedProfile(profileByIdRaw);
+    const profilesByEmail = profilesByEmailRaw
+      .map((candidate) => toAuthenticatedProfile(candidate))
+      .filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate));
 
     const profileMatches = (profilesByEmail ?? []).filter((candidate) => {
       const candidateEmail = normalizeEmail(candidate.email);
@@ -180,7 +299,7 @@ async function resolveProfileFromRequest(req: Request, res: Response, next: () =
           role: "internal",
           is_active: true,
         })
-        .select(selectInternalProfileFields)
+        .select("id,email,display_name,role,is_active")
         .maybeSingle();
 
       if (insertError) {
@@ -210,8 +329,10 @@ async function resolveProfileFromRequest(req: Request, res: Response, next: () =
         role: insertedProfile?.role ?? null,
         is_active: insertedProfile?.is_active ?? null,
       });
-      profile = insertedProfile ?? null;
+      profile = toAuthenticatedProfile((insertedProfile as InternalProfileRow | null) ?? null);
     }
+
+    profile = withMappedProfileRole(profile);
 
     console.log("[auth/profile] profile lookup result", {
       authEmail,
@@ -225,6 +346,23 @@ async function resolveProfileFromRequest(req: Request, res: Response, next: () =
     });
 
     if (!profile) {
+      if (profileByIdError && profileByEmailError) {
+        const reason = "profile_lookup_failed";
+        console.warn("[auth/profile] forbidden", {
+          branch: reason,
+          authEmail,
+          authUserId,
+          normalizedEmail,
+          profileByIdError,
+          profileByEmailError,
+        });
+        res.status(403).json({
+          error: "Your account is not authorized for this portal.",
+          reason,
+          authEmail,
+        });
+        return;
+      }
       const reason = "profile_not_found";
       console.warn("[auth/profile] forbidden", {
         branch: reason,
