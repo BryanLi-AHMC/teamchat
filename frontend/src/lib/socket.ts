@@ -1,5 +1,7 @@
 import { io, type Socket } from "socket.io-client";
 
+import { API_BASE } from "./api";
+
 type ServerToClientEvents = {
   "message:new": (payload: {
     id: string;
@@ -71,25 +73,24 @@ export function getResolvedSocketUrl(): string {
   if (socketEnv) {
     return socketEnv;
   }
-  const apiBase = import.meta.env.VITE_API_BASE_URL?.replace(/\/+$/, "") ?? "";
-  if (apiBase.endsWith("/api")) {
-    return apiBase.slice(0, -"/api".length);
+  // Same host as REST (api.ts): VITE_API_URL or VITE_API_BASE_URL → API_BASE (no /api suffix).
+  if (API_BASE) {
+    return API_BASE;
   }
   return "http://localhost:3003";
 }
 
-/** GET `VITE_API_BASE_URL/health` — fast check that the HTTP API is up (Socket.IO shares the same host/port). */
+/** GET `/api/health` on the API host (see `API_BASE` in api.ts — supports VITE_API_URL or VITE_API_BASE_URL). */
 export async function probeTeamchatApiHealth(): Promise<{ ok: true } | { ok: false; message: string }> {
-  const base = import.meta.env.VITE_API_BASE_URL?.replace(/\/+$/, "") ?? "";
-  if (!base) {
+  if (!API_BASE) {
     return {
       ok: false,
       message:
-        "VITE_API_BASE_URL was not set when this bundle was built. In Cloudflare Pages: Settings → Environment variables → add VITE_API_BASE_URL (and other VITE_* from frontend/.env.example) for Production, then redeploy. Vite bakes these in at build time, not runtime.",
+        "No API host at build time: set VITE_API_URL or VITE_API_BASE_URL in Cloudflare Pages → Environment variables (Production / Preview), then redeploy. Vite bakes these in at build time.",
     };
   }
   try {
-    const res = await fetch(`${base}/health`, { method: "GET" });
+    const res = await fetch(`${API_BASE}/api/health`, { method: "GET" });
     if (!res.ok) {
       return { ok: false, message: `${res.status} ${res.statusText}` };
     }
@@ -184,7 +185,7 @@ export function waitForSocketConnection(sock: Socket, timeoutMs: number): Promis
       cleanup();
       resolve({
         ok: false,
-        reason: `no connect or connect_error within ${timeoutMs}ms (API not on this host/port, or handshake stuck — confirm backend started and VITE_API_BASE_URL / VITE_SOCKET_URL match it)`,
+        reason: `no connect or connect_error within ${timeoutMs}ms (API not on this host/port, or handshake stuck — confirm backend started; VITE_API_URL / VITE_API_BASE_URL / VITE_SOCKET_URL match deployment)`,
       });
     }, timeoutMs);
     const onConnect = () => {

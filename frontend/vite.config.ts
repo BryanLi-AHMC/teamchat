@@ -9,13 +9,23 @@ const requireProductionTeamchatEnv = () => ({
     if (config.command !== "build" || config.mode !== "production") {
       return;
     }
-    const env = loadEnv(config.mode, config.root, "VITE_");
-    const required = ["VITE_API_BASE_URL", "VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY"] as const;
-    const missing = required.filter((key) => !env[key]?.trim());
+    // loadEnv reads .env* files; Cloudflare Pages / CI inject vars into process.env — merge both.
+    const fileEnv = loadEnv(config.mode, config.root, "VITE_");
+    const fromEnv = (key: string) => (fileEnv[key] ?? process.env[key])?.trim() ?? "";
+    const hasApiBase = Boolean(fromEnv("VITE_API_BASE_URL") || fromEnv("VITE_API_URL"));
+    const missing: string[] = [];
+    if (!hasApiBase) {
+      missing.push("VITE_API_BASE_URL or VITE_API_URL");
+    }
+    for (const key of ["VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY"] as const) {
+      if (!fromEnv(key)) {
+        missing.push(key);
+      }
+    }
     if (missing.length > 0) {
       throw new Error(
         `[vite] Production build is missing: ${missing.join(", ")}. ` +
-          "Set them where `vite build` runs (e.g. Cloudflare Pages → Settings → Environment variables for Production), then rebuild. See frontend/.env.example."
+          "Cloudflare Pages: use VITE_API_URL or VITE_API_BASE_URL (same value, e.g. https://api.example.com/api). Add vars under Settings → Environment variables, then redeploy. See frontend/.env.example."
       );
     }
   },
