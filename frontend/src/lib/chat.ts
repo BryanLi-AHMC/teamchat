@@ -38,10 +38,13 @@ export type OutgoingAttachment = {
   size: number;
 };
 
+const INTERNAL_PROFILE_SAFE_FIELDS = "id,email,display_name,role,xp_total,level";
+const isDev = import.meta.env.DEV;
+
 export async function getActiveTeammates() {
   const { data, error } = await supabase
     .from("internal_profiles")
-    .select("id,email,display_name,role,is_active,xp_total,points,level,streak")
+    .select(INTERNAL_PROFILE_SAFE_FIELDS)
     .eq("is_active", true)
     .order("display_name", { ascending: true });
 
@@ -49,7 +52,33 @@ export async function getActiveTeammates() {
     throw new Error(error.message);
   }
 
-  return (data ?? []) as InternalProfile[];
+  const teammates = ((data ?? []) as InternalProfile[]).map((profile) => {
+    const hasNullXp = profile.xp_total == null;
+    const hasNullLevel = profile.level == null;
+
+    if (isDev) {
+      console.debug("[chat/getActiveTeammates] selected profile fields", {
+        id: profile.id,
+        fields: Object.keys(profile),
+      });
+
+      if (hasNullXp || hasNullLevel) {
+        console.warn("[chat/getActiveTeammates] missing/null profile values", {
+          id: profile.id,
+          xp_total: profile.xp_total,
+          level: profile.level,
+        });
+      }
+    }
+
+    return {
+      ...profile,
+      xp_total: hasNullXp ? 0 : profile.xp_total,
+      level: hasNullLevel ? 1 : profile.level,
+    };
+  });
+
+  return teammates;
 }
 
 export async function getGroupConversationsForUser(userId: string) {
