@@ -34,9 +34,9 @@ export async function resolveCurrentProfile(
     return null;
   }
 
-  // Base schema (create_internal_profiles) always has these columns. Stats columns
-  // (xp_total, points, …) come from a later migration — selecting them breaks auth when
-  // remote DBs have not applied that migration (Postgres: "column … does not exist").
+  // Only base columns — safe when `add_internal_profile_stats.sql` is not applied yet.
+  // Socket auth used to select xp_total/points/…; that caused connect_error on older DBs.
+  // Deploy this backend revision to production so Socket.IO stops requesting missing columns.
   const { data, error } = await supabaseAdmin
     .from("internal_profiles")
     .select("id,email,display_name,role,is_active")

@@ -1,6 +1,6 @@
 import { PropsWithChildren, useEffect, useRef, useState } from "react";
 import { Navigate } from "react-router-dom";
-import type { Session } from "@supabase/supabase-js";
+import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
 import { requireActiveInternalProfile } from "../lib/authProfile";
 import { supabase } from "../lib/supabase";
 
@@ -41,7 +41,10 @@ function ProtectedRoute({ children }: PropsWithChildren) {
       }
     };
 
-    const validateSession = async (candidateSession: Session | null) => {
+    const validateSession = async (
+      candidateSession: Session | null,
+      options?: { background?: boolean }
+    ) => {
       if (!candidateSession) {
         hasHandledFailure.current = false;
         hasSignedOutAfterFailure.current = false;
@@ -55,7 +58,10 @@ function ProtectedRoute({ children }: PropsWithChildren) {
       }
 
       isCheckingProfile.current = true;
-      if (isMounted.current) {
+      // Supabase refreshes the JWT when the tab regains focus (`TOKEN_REFRESHED`). Showing the
+      // full-route loading screen unmounts the app and feels like a page reload — skip that for
+      // silent token rotation while already navigating the portal.
+      if (isMounted.current && !options?.background) {
         setLoading(true);
       }
 
@@ -88,8 +94,9 @@ function ProtectedRoute({ children }: PropsWithChildren) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      void validateSession(nextSession);
+    } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, nextSession) => {
+      const background = event === "TOKEN_REFRESHED";
+      void validateSession(nextSession, { background });
     });
 
     return () => {

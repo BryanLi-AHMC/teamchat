@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 
 import { emitUserStatsUpdated } from "../lib/realtime";
+import { isPostgresMissingColumnError } from "../lib/postgresMissingColumn";
 import { supabaseAdmin } from "../lib/supabase";
 
 type AuthedRequest = Request & {
@@ -75,6 +76,13 @@ profileStatsRouter.post("/me/award-update-xp", requireAuth, async (req, res) => 
       .maybeSingle();
 
     if (profileError) {
+      if (isPostgresMissingColumnError(profileError)) {
+        res.status(503).json({
+          error:
+            "Profile stats columns are missing on the database (e.g. `points`, `xp_total`). Run `supabase/migrations/add_internal_profile_stats.sql` against your Supabase project, then retry.",
+        });
+        return;
+      }
       throw new Error(profileError.message);
     }
     if (!profile || !profile.is_active) {
@@ -110,6 +118,13 @@ profileStatsRouter.post("/me/award-update-xp", requireAuth, async (req, res) => 
       .single();
 
     if (updateError || !updated) {
+      if (updateError && isPostgresMissingColumnError(updateError)) {
+        res.status(503).json({
+          error:
+            "Profile stats columns are missing on the database. Run `supabase/migrations/add_internal_profile_stats.sql` against your Supabase project, then retry.",
+        });
+        return;
+      }
       throw new Error(updateError?.message ?? "Unable to update stats.");
     }
 

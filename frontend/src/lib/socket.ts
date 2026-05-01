@@ -161,6 +161,18 @@ export function disconnectSocketClient() {
   socketToken = null;
 }
 
+/**
+ * If the Engine.IO client is stuck in "opening" or inactive after an error, waiting for `connect`
+ * never fires. Disconnect + connect starts a fresh handshake on the same Socket instance.
+ */
+export function nudgeSocketReconnect(sock: Socket): void {
+  if (sock.connected) {
+    return;
+  }
+  sock.disconnect();
+  sock.connect();
+}
+
 export type WaitForSocketResult = { ok: true } | { ok: false; reason: string };
 
 /**
@@ -185,7 +197,7 @@ export function waitForSocketConnection(sock: Socket, timeoutMs: number): Promis
       cleanup();
       resolve({
         ok: false,
-        reason: `no connect or connect_error within ${timeoutMs}ms (API not on this host/port, or handshake stuck — confirm backend started; VITE_API_URL / VITE_API_BASE_URL / VITE_SOCKET_URL match deployment)`,
+        reason: `no connect or connect_error within ${timeoutMs}ms — confirm the API host allows Socket.IO (same origin as REST unless VITE_SOCKET_URL is set), use https:// when the app is served over HTTPS (mixed content blocks ws), and that CORS allows this Pages origin`,
       });
     }, timeoutMs);
     const onConnect = () => {

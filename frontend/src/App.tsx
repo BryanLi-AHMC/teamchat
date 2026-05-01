@@ -39,6 +39,7 @@ import {
   disconnectSocketClient,
   getResolvedSocketUrl,
   getSocketClient,
+  nudgeSocketReconnect,
   probeTeamchatApiHealth,
   SOCKET_READY_WAIT_MS,
   waitForSocketConnection,
@@ -1566,6 +1567,15 @@ function MainLayout() {
     if (!probe.ok) {
       throw new Error(`TeamChat API: ${probe.message}`);
     }
+    if (typeof window !== "undefined" && window.location.protocol === "https:") {
+      const socketUrl = getResolvedSocketUrl();
+      if (socketUrl.startsWith("http://")) {
+        throw new Error(
+          `Chat realtime: Socket.IO target is ${socketUrl} but this site is HTTPS — browsers block mixed content. Set VITE_API_URL or VITE_SOCKET_URL to an https:// API URL in Cloudflare Pages (build env) and redeploy.`
+        );
+      }
+    }
+    nudgeSocketReconnect(socket);
     const wait = await waitForSocketConnection(socket, SOCKET_READY_WAIT_MS);
     if (!wait.ok) {
       throw new Error(`Chat realtime: ${wait.reason}`);

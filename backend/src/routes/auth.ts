@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 
+import { isPostgresMissingColumnError } from "../lib/postgresMissingColumn";
 import { supabaseAdmin } from "../lib/supabase";
 
 type AuthenticatedRequest = Request & {
@@ -68,18 +69,6 @@ const withMappedProfileRole = (
     ...profile,
     role: mappedRole,
   };
-};
-
-const isMissingColumnError = (error: unknown): boolean => {
-  if (!error || typeof error !== "object") {
-    return false;
-  }
-  const code = "code" in error ? String(error.code ?? "") : "";
-  const message = "message" in error ? String(error.message ?? "") : "";
-  return (
-    code === "42703" ||
-    (message.includes("column internal_profiles.") && message.includes("does not exist"))
-  );
 };
 
 const toAuthenticatedProfile = (
@@ -203,7 +192,7 @@ async function resolveProfileFromRequest(req: Request, res: Response, next: () =
       });
       const { data: byIdData, error: byIdError } = await supabaseAdmin
         .from("internal_profiles")
-        .select(select)
+        .select(String(select))
         .eq("id", authUserId)
         .eq("is_active", true)
         .maybeSingle();
@@ -222,7 +211,7 @@ async function resolveProfileFromRequest(req: Request, res: Response, next: () =
         attempt: attempt + 1,
         error: byIdError,
       });
-      if (!isMissingColumnError(byIdError)) {
+      if (!isPostgresMissingColumnError(byIdError)) {
         break;
       }
     }
@@ -244,12 +233,12 @@ async function resolveProfileFromRequest(req: Request, res: Response, next: () =
       });
       const { data: byEmailData, error: byEmailError } = await supabaseAdmin
         .from("internal_profiles")
-        .select(select)
+        .select(String(select))
         .eq("email", normalizedEmail)
         .eq("is_active", true)
         .limit(25);
       if (!byEmailError) {
-        profilesByEmailRaw = (byEmailData as InternalProfileRow[] | null) ?? [];
+        profilesByEmailRaw = (byEmailData as unknown as InternalProfileRow[] | null) ?? [];
         profileByEmailError = null;
         break;
       }
@@ -263,7 +252,7 @@ async function resolveProfileFromRequest(req: Request, res: Response, next: () =
         attempt: attempt + 1,
         error: byEmailError,
       });
-      if (!isMissingColumnError(byEmailError)) {
+      if (!isPostgresMissingColumnError(byEmailError)) {
         break;
       }
     }
