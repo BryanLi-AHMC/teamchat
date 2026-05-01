@@ -1564,11 +1564,7 @@ function MainLayout() {
     }
     const probe = await probeTeamchatApiHealth();
     if (!probe.ok) {
-      throw new Error(
-        import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL
-          ? `TeamChat API not reachable (${import.meta.env.VITE_API_BASE_URL ?? import.meta.env.VITE_API_URL}): ${probe.message}`
-          : `TeamChat API: ${probe.message}`
-      );
+      throw new Error(`TeamChat API: ${probe.message}`);
     }
     const wait = await waitForSocketConnection(socket, SOCKET_READY_WAIT_MS);
     if (!wait.ok) {
