@@ -51,10 +51,14 @@ import { PetAvatar } from "./components/PetAvatar";
 import { IdentityBar } from "./components/IdentityBar";
 import { HubRailWidgets } from "./components/HubRailWidgets";
 import { TeamPetDashboard } from "./components/TeamPetDashboard";
+import { TimelineWeekCalendar } from "./components/TimelineWeekCalendar";
 import { CurrentUserPlayerCard } from "./components/CurrentUserPlayerCard";
+import { SidebarPrimaryNav, type SidebarPrimaryTabId } from "./components/SidebarPrimaryNav";
+import { DailyUpdatesSection } from "./components/DailyUpdatesSection";
 import { PET_OPTIONS, isValidPetId } from "./constants/pets";
 import { getThemeCssVars, readStoredThemeId, TEAMCHAT_SELECTED_THEME_STORAGE_KEY } from "./utils/theme";
 import { getAssignedPetIdForUser, resolvePetIdForProfile } from "./utils/petAssignment";
+import { getDateKey } from "./utils/timelineDates";
 import "./App.css";
 
 const SELECTED_PET_STORAGE_KEY = "teamchat:selectedPetId";
@@ -356,33 +360,6 @@ function GroupInfoModal({
   );
 }
 
-function getDateKey(isoDate: string) {
-  const date = new Date(isoDate);
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, "0");
-  const day = `${date.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function formatTimelineDateLabel(dateKey: string) {
-  const date = new Date(`${dateKey}T00:00:00`);
-  const today = new Date();
-  const yesterday = new Date();
-  yesterday.setDate(today.getDate() - 1);
-
-  if (dateKey === getDateKey(today.toISOString())) {
-    return "Today";
-  }
-  if (dateKey === getDateKey(yesterday.toISOString())) {
-    return "Yesterday";
-  }
-  return date.toLocaleDateString([], {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
 function isGroupedWithPrevious(currentMessage: ChatMessage, previousMessage?: ChatMessage) {
   if (!previousMessage) {
     return false;
@@ -454,7 +431,6 @@ function MainLayout() {
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const [attachmentUrlByPath, setAttachmentUrlByPath] = useState<Record<string, string>>({});
   const [showEmojiMenu, setShowEmojiMenu] = useState(false);
-  const [searchText, setSearchText] = useState("");
   const [chatError, setChatError] = useState("");
   const [isInitializing, setIsInitializing] = useState(true);
   const [isSending, setIsSending] = useState(false);
@@ -474,9 +450,10 @@ function MainLayout() {
   const [levelUpToast, setLevelUpToast] = useState<string | null>(null);
   const [showUpdatesPanel, setShowUpdatesPanel] = useState(false);
   const [showIdentityBar, setShowIdentityBar] = useState(false);
+  const [primarySidebarTab, setPrimarySidebarTab] = useState<SidebarPrimaryTabId>("home");
   const [hubDailyExpanded, setHubDailyExpanded] = useState(true);
   const [hubRailScrollVisible, setHubRailScrollVisible] = useState(true);
-  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [timelineCalendarWeekOffset, setTimelineCalendarWeekOffset] = useState(0);
   const [restoredConversationId, setRestoredConversationId] = useState<string | null>(null);
   const timelineScrollRef = useRef<HTMLDivElement | null>(null);
   const hubRailScrollRegionRef = useRef<HTMLDivElement | null>(null);
@@ -1113,25 +1090,6 @@ function MainLayout() {
     return new Map(allProfiles.map((profile) => [profile.id, profile]));
   }, [activeUsers, currentProfile]);
 
-  const filteredDmUsers = useMemo(() => {
-    const query = searchText.trim().toLowerCase();
-    if (!query) {
-      return activeUsers;
-    }
-    return activeUsers.filter(
-      (user) =>
-        user.display_name.toLowerCase().includes(query) || user.email.toLowerCase().includes(query)
-    );
-  }, [activeUsers, searchText]);
-
-  const filteredGroups = useMemo(() => {
-    const query = searchText.trim().toLowerCase();
-    if (!query) {
-      return groupConversations;
-    }
-    return groupConversations.filter((group) => (group.title ?? "Untitled group").toLowerCase().includes(query));
-  }, [groupConversations, searchText]);
-
   const selectedUpdatesProfile = useMemo(() => {
     if (!selectedUpdatesUserId) {
       return currentProfile;
@@ -1190,6 +1148,10 @@ function MainLayout() {
     }
     return Array.from(grouped.entries()).sort(([a], [b]) => (a > b ? -1 : 1));
   }, [selectedUpdates]);
+
+  const updatesDateKeySet = useMemo(() => new Set(groupedUpdates.map(([k]) => k)), [groupedUpdates]);
+
+  const expandedDatesForSelectedUser = expandedDatesByUserId[selectedUpdatesUserId ?? ""] ?? {};
 
   const renderPresencePetAvatar = (
     profile: InternalProfile | undefined,
@@ -1264,6 +1226,11 @@ function MainLayout() {
 
   const isTeamDashboardView = !activeConversation && Boolean(currentProfile);
 
+  const totalSidebarUnread = useMemo(
+    () => Object.values(unreadByConversationId).reduce((sum, n) => sum + n, 0),
+    [unreadByConversationId]
+  );
+
   useEffect(() => {
     if (!hubRailScrollVisible) {
       return;
@@ -1278,7 +1245,7 @@ function MainLayout() {
         el.scrollTop = 0;
       });
     }
-  }, [isTeamDashboardView, hubRailScrollVisible, showUpdatesPanel, currentProfile?.id]);
+  }, [isTeamDashboardView, hubRailScrollVisible, showUpdatesPanel, primarySidebarTab, currentProfile?.id]);
 
   const canManageActiveGroup = useMemo(() => {
     if (!activeConversation || activeConversation.type !== "group" || !currentProfile) {
@@ -1337,12 +1304,76 @@ function MainLayout() {
     setChatError("");
   };
 
-  const goToDashboard = () => {
+  /** Conversation with the most recent message (DM or group); null if none loaded yet. */
+  const lastMessagedConversationId = useMemo(() => {
+    const candidateIds = new Set<string>([
+      ...Object.values(dmConversationByUserId),
+      ...groupConversations.map((g) => g.id),
+    ]);
+    let bestId: string | null = null;
+    let bestTime = -1;
+    for (const conversationId of candidateIds) {
+      const latest = latestMessageByConversationId[conversationId];
+      if (!latest?.created_at) {
+        continue;
+      }
+      const t = new Date(latest.created_at).getTime();
+      if (t > bestTime) {
+        bestTime = t;
+        bestId = conversationId;
+      }
+    }
+    return bestId;
+  }, [dmConversationByUserId, groupConversations, latestMessageByConversationId]);
+
+  const goToDashboard = (options?: { sidebarTab?: SidebarPrimaryTabId }) => {
+    const hadConversation = Boolean(activeConversation);
     setActiveConversation(null);
     setActiveConversationMembers([]);
     setMessages([]);
     setChatError("");
     navigate("/", { replace: true });
+    if (options?.sidebarTab !== undefined) {
+      setPrimarySidebarTab(options.sidebarTab);
+    } else if (hadConversation) {
+      setPrimarySidebarTab("home");
+    }
+  };
+
+  const handlePrimarySidebarTab = (tab: SidebarPrimaryTabId) => {
+    if (tab === "messages") {
+      if (lastMessagedConversationId) {
+        const group = groupConversations.find((g) => g.id === lastMessagedConversationId);
+        if (group) {
+          void openGroupConversation(group);
+          return;
+        }
+        const dmUserId = Object.entries(dmConversationByUserId).find(
+          ([, convId]) => convId === lastMessagedConversationId
+        )?.[0];
+        if (dmUserId) {
+          void openDmConversation(dmUserId);
+          return;
+        }
+      }
+      setPrimarySidebarTab("messages");
+      return;
+    }
+
+    setPrimarySidebarTab(tab);
+    if (tab === "home" || tab === "team") {
+      goToDashboard();
+    }
+    if (tab === "timeline") {
+      setHubRailScrollVisible(true);
+      setShowUpdatesPanel(true);
+    }
+    if (tab === "settings") {
+      if (activeConversation) {
+        goToDashboard();
+      }
+      setShowIdentityBar(true);
+    }
   };
 
   /** Wide layout: docked third column. Narrow: slide-over drawer — do not clear hub content on drawer close. */
@@ -1364,6 +1395,9 @@ function MainLayout() {
   };
 
   const handleViewUpdatesProfile = (targetUserId: string) => {
+    if (!activeConversation) {
+      setPrimarySidebarTab("timeline");
+    }
     setHubRailScrollVisible(true);
     if (targetUserId === selectedUpdatesUserId) {
       setShowUpdatesPanel(true);
@@ -1460,7 +1494,6 @@ function MainLayout() {
         [dateKey]: true,
       },
     }));
-    setShowDatePicker(false);
     requestAnimationFrame(() => {
       const root = timelineScrollRef.current;
       const target = root?.querySelector<HTMLElement>(`[data-date-key="${dateKey}"]`);
@@ -1760,21 +1793,6 @@ function MainLayout() {
   }, [showEmojiMenu]);
 
   useEffect(() => {
-    if (!showDatePicker) {
-      return;
-    }
-    const handleOutsideClick = (event: globalThis.MouseEvent) => {
-      const target = event.target as HTMLElement;
-      if (target.closest(".updates-calendar-wrap")) {
-        return;
-      }
-      setShowDatePicker(false);
-    };
-    document.addEventListener("mousedown", handleOutsideClick);
-    return () => document.removeEventListener("mousedown", handleOutsideClick);
-  }, [showDatePicker]);
-
-  useEffect(() => {
     if (!activeConversation?.id) {
       if (conversationIdFromRoute && restoredConversationId !== conversationIdFromRoute) {
         navigate("/", { replace: true });
@@ -1805,6 +1823,8 @@ function MainLayout() {
 
   const appShellTheme = getThemeCssVars(selectedThemeColor) as CSSProperties;
 
+  const showSidebarPrimaryTabs = isTeamDashboardView && primarySidebarTab === "home";
+
   return (
     <div className="app-container">
       {levelUpToast ? (
@@ -1817,7 +1837,7 @@ function MainLayout() {
         style={appShellTheme}
       >
       <aside className="sidebar sidebar-panel">
-        <div className="sidebar-body-scroll">
+        <div className="sidebar-layout">
           {currentProfile ? (
             <div className="sidebar-player-card-slot">
               <CurrentUserPlayerCard
@@ -1830,123 +1850,197 @@ function MainLayout() {
                 dayStreak={currentUserDayStreak}
                 isIdentityPanelOpen={showIdentityBar}
                 onPetIconClick={() => setShowIdentityBar((open) => !open)}
-                onOpenProfile={() => void handleViewUpdatesProfile(currentProfile.id)}
+                onOpenProfile={() => {
+                  goToDashboard({ sidebarTab: "timeline" });
+                  void handleViewUpdatesProfile(currentProfile.id);
+                }}
               />
             </div>
           ) : null}
 
-          <div className="sidebar-brand">
-            <h1 className="app-title">TeamChat</h1>
-          </div>
+          {showSidebarPrimaryTabs ? (
+            <SidebarPrimaryNav
+              activeTab={primarySidebarTab}
+              onSelectTab={handlePrimarySidebarTab}
+              messagesBadgeCount={totalSidebarUnread}
+            />
+          ) : null}
 
-          <input
-            className="sidebar-search"
-            type="text"
-            placeholder="Search teammates or groups"
-            value={searchText}
-            onChange={(event) => setSearchText(event.target.value)}
-          />
-
-          <nav className="sidebar-sections">
-          <section>
-            <h2>Direct Messages</h2>
-            <ul>
-              {filteredDmUsers.map((user) => (
-                <li key={user.id}>
-                  {(() => {
-                    const dmConversationId = dmConversationByUserId[user.id];
-                    const unreadCount = unreadByConversationId[dmConversationId] ?? 0;
-                    const latestMessage = dmConversationId ? latestMessageByConversationId[dmConversationId] : undefined;
-                    const preview =
-                      latestMessage?.body?.trim() ||
-                      (latestMessage?.message_type === "image"
-                        ? "Image attachment"
-                        : latestMessage?.message_type === "file"
-                          ? latestMessage.attachment_name || "File attachment"
-                          : "");
-                    return (
-                  <button
-                    type="button"
-                    className={`sidebar-item ${activeConversation?.id === dmConversationId ? "sidebar-item-active" : ""}`}
-                    onClick={() => void openDmConversation(user.id)}
-                  >
-                    <span className="sidebar-item-main">
-                      <span role="button" onClick={(event) => {
-                        event.stopPropagation();
-                        handleViewUpdatesProfile(user.id);
-                      }}>{renderPresencePetAvatar(user, "sm")}</span>
-                      <span className="sidebar-item-text-wrap">
-                        <span
-                          className="sidebar-item-name"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleViewUpdatesProfile(user.id);
-                          }}
-                        >
-                          {user.display_name}
-                        </span>
-                        <span className="sidebar-item-preview">
-                          {preview ? preview : "No messages yet"}
-                        </span>
-                      </span>
-                    </span>
-                    {unreadCount > 0 ? (
-                      <span className="unread-badge">{formatUnreadCount(unreadCount)}</span>
-                    ) : null}
-                  </button>
-                    );
-                  })()}
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          <section>
-            <div className="section-header-row">
-              <h2>Group Chats</h2>
-              <button type="button" className="new-group-button" onClick={() => setShowGroupModal(true)}>
-                + New Group
+          {isTeamDashboardView && primarySidebarTab !== "home" && primarySidebarTab !== "messages" ? (
+            <div className="sidebar-main-menu-row">
+              <button type="button" className="sidebar-main-menu-btn" onClick={() => setPrimarySidebarTab("home")}>
+                ← Main menu
               </button>
             </div>
-            <ul>
-              {filteredGroups.map((group) => (
-                <li key={group.id}>
-                  {(() => {
-                    const unreadCount = unreadByConversationId[group.id] ?? 0;
-                    const latestMessage = latestMessageByConversationId[group.id];
-                    const preview =
-                      latestMessage?.body?.trim() ||
-                      (latestMessage?.message_type === "image"
-                        ? "Image attachment"
-                        : latestMessage?.message_type === "file"
-                          ? latestMessage.attachment_name || "File attachment"
-                          : "");
-                    return (
-                  <button
-                    type="button"
-                    className={`sidebar-item ${activeConversation?.id === group.id ? "sidebar-item-active" : ""}`}
-                    onClick={() => void openGroupConversation(group)}
-                  >
-                    <span className="sidebar-item-main">
-                      <span className="avatar avatar-sm avatar-group" aria-hidden="true">
-                        {(group.title || "Group").slice(0, 1).toUpperCase()}
-                      </span>
-                      <span className="sidebar-item-text-wrap">
-                        <span className="sidebar-item-name">{group.title || "Untitled group"}</span>
-                        <span className="sidebar-item-preview">{preview ? preview : "No messages yet"}</span>
-                      </span>
-                    </span>
-                    {unreadCount > 0 ? (
-                      <span className="unread-badge">{formatUnreadCount(unreadCount)}</span>
-                    ) : null}
-                  </button>
-                    );
-                  })()}
-                </li>
-              ))}
-            </ul>
-          </section>
-        </nav>
+          ) : null}
+
+          <div className="sidebar-tab-panel">
+            {primarySidebarTab === "messages" || !isTeamDashboardView ? (
+              <div className="sidebar-body-scroll">
+                {!isTeamDashboardView ? (
+                  <div className="sidebar-main-menu-row">
+                    <button type="button" className="sidebar-main-menu-btn" onClick={() => goToDashboard()}>
+                      ← Main menu
+                    </button>
+                  </div>
+                ) : null}
+                {isTeamDashboardView && primarySidebarTab === "messages" ? (
+                  <div className="sidebar-main-menu-row">
+                    <button type="button" className="sidebar-main-menu-btn" onClick={() => setPrimarySidebarTab("home")}>
+                      ← Main menu
+                    </button>
+                  </div>
+                ) : null}
+
+                <nav className="sidebar-sections">
+                  <section>
+                    <h2>Direct Messages</h2>
+                    <ul>
+                      {activeUsers.map((user) => (
+                        <li key={user.id}>
+                          {(() => {
+                            const dmConversationId = dmConversationByUserId[user.id];
+                            const unreadCount = unreadByConversationId[dmConversationId] ?? 0;
+                            const latestMessage = dmConversationId
+                              ? latestMessageByConversationId[dmConversationId]
+                              : undefined;
+                            const preview =
+                              latestMessage?.body?.trim() ||
+                              (latestMessage?.message_type === "image"
+                                ? "Image attachment"
+                                : latestMessage?.message_type === "file"
+                                  ? latestMessage.attachment_name || "File attachment"
+                                  : "");
+                            return (
+                              <button
+                                type="button"
+                                className={`sidebar-item ${activeConversation?.id === dmConversationId ? "sidebar-item-active" : ""}`}
+                                onClick={() => void openDmConversation(user.id)}
+                              >
+                                <span className="sidebar-item-main">
+                                  <span
+                                    role="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      handleViewUpdatesProfile(user.id);
+                                    }}
+                                  >
+                                    {renderPresencePetAvatar(user, "sm")}
+                                  </span>
+                                  <span className="sidebar-item-text-wrap">
+                                    <span
+                                      className="sidebar-item-name"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        handleViewUpdatesProfile(user.id);
+                                      }}
+                                    >
+                                      {user.display_name}
+                                    </span>
+                                    <span className="sidebar-item-preview">
+                                      {preview ? preview : "No messages yet"}
+                                    </span>
+                                  </span>
+                                </span>
+                                {unreadCount > 0 ? (
+                                  <span className="unread-badge">{formatUnreadCount(unreadCount)}</span>
+                                ) : null}
+                              </button>
+                            );
+                          })()}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+
+                  <section>
+                    <div className="section-header-row">
+                      <h2>Group Chats</h2>
+                      <button type="button" className="new-group-button" onClick={() => setShowGroupModal(true)}>
+                        + New Group
+                      </button>
+                    </div>
+                    <ul>
+                      {groupConversations.map((group) => (
+                        <li key={group.id}>
+                          {(() => {
+                            const unreadCount = unreadByConversationId[group.id] ?? 0;
+                            const latestMessage = latestMessageByConversationId[group.id];
+                            const preview =
+                              latestMessage?.body?.trim() ||
+                              (latestMessage?.message_type === "image"
+                                ? "Image attachment"
+                                : latestMessage?.message_type === "file"
+                                  ? latestMessage.attachment_name || "File attachment"
+                                  : "");
+                            return (
+                              <button
+                                type="button"
+                                className={`sidebar-item ${activeConversation?.id === group.id ? "sidebar-item-active" : ""}`}
+                                onClick={() => void openGroupConversation(group)}
+                              >
+                                <span className="sidebar-item-main">
+                                  <span className="avatar avatar-sm avatar-group" aria-hidden="true">
+                                    {(group.title || "Group").slice(0, 1).toUpperCase()}
+                                  </span>
+                                  <span className="sidebar-item-text-wrap">
+                                    <span className="sidebar-item-name">{group.title || "Untitled group"}</span>
+                                    <span className="sidebar-item-preview">{preview ? preview : "No messages yet"}</span>
+                                  </span>
+                                </span>
+                                {unreadCount > 0 ? (
+                                  <span className="unread-badge">{formatUnreadCount(unreadCount)}</span>
+                                ) : null}
+                              </button>
+                            );
+                          })()}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                </nav>
+              </div>
+            ) : primarySidebarTab === "home" ? null : (
+              <div className="sidebar-body-scroll sidebar-tab-sheet">
+                {primarySidebarTab === "tasks" ? (
+                  <>
+                    <p className="sidebar-tab-sheet__title">Tasks</p>
+                    <p className="sidebar-tab-sheet__muted">Task lists and assignments will show here in a future update.</p>
+                  </>
+                ) : null}
+                {primarySidebarTab === "timeline" ? (
+                  <>
+                    <p className="sidebar-tab-sheet__title">Timeline</p>
+                    <p className="sidebar-tab-sheet__muted">
+                      Your week view is in the center. Daily updates, the week strip, and your update history are in the
+                      column on the right. Use the hide control (») on that panel if you want to tuck it away.
+                    </p>
+                  </>
+                ) : null}
+                {primarySidebarTab === "team" ? (
+                  <>
+                    <p className="sidebar-tab-sheet__title">Team · Pets &amp; Rewards</p>
+                    <p className="sidebar-tab-sheet__muted">
+                      The center map shows everyone&apos;s pets. Drag desks to rearrange (except the leader). Earn XP from
+                      daily updates in the Timeline tab.
+                    </p>
+                    <button type="button" className="sidebar-tab-sheet__cta" onClick={() => goToDashboard()}>
+                      View team map
+                    </button>
+                  </>
+                ) : null}
+                {primarySidebarTab === "settings" ? (
+                  <>
+                    <p className="sidebar-tab-sheet__title">Settings</p>
+                    <p className="sidebar-tab-sheet__muted">Change your pet, theme color, and identity card.</p>
+                    <button type="button" className="sidebar-tab-sheet__cta" onClick={() => setShowIdentityBar(true)}>
+                      Open identity &amp; appearance
+                    </button>
+                  </>
+                ) : null}
+              </div>
+            )}
+          </div>
         </div>
       </aside>
 
@@ -1954,18 +2048,22 @@ function MainLayout() {
         <div className="chat-panel-inner center-content-inner">
           <div className="chat-panel-body">
           {!activeConversation && currentProfile ? (
-            <TeamPetDashboard
-              currentUser={currentProfile}
-              teammates={activeUsers}
-              currentUserPetId={selectedPetId}
-              availablePetIds={availablePetIds}
-              onlineUserIds={onlineUserIds}
-              dmConversationByUserId={dmConversationByUserId}
-              unreadByConversationId={unreadByConversationId}
-              totalXpByUserId={totalXpByUserId}
-              onLogout={() => void handleLogout()}
-              onOpenTeammateDm={(userId) => void openDmConversation(userId)}
-            />
+            primarySidebarTab === "timeline" ? (
+              <TimelineWeekCalendar userId={currentProfile.id} />
+            ) : (
+              <TeamPetDashboard
+                currentUser={currentProfile}
+                teammates={activeUsers}
+                currentUserPetId={selectedPetId}
+                availablePetIds={availablePetIds}
+                onlineUserIds={onlineUserIds}
+                dmConversationByUserId={dmConversationByUserId}
+                unreadByConversationId={unreadByConversationId}
+                totalXpByUserId={totalXpByUserId}
+                onLogout={() => void handleLogout()}
+                onOpenTeammateDm={(userId) => void openDmConversation(userId)}
+              />
+            )
           ) : null}
 
           {activeConversation ? (
@@ -1990,32 +2088,13 @@ function MainLayout() {
               ) : null}
               <h2>{activeConversationTitle}</h2>
             </div>
-            <div className="panel-header-actions">
-              <button type="button" className="back-to-dashboard-button" onClick={goToDashboard}>
-                <span className="action-label-desktop">Back to Dashboard</span>
-                <span className="action-label-mobile">Dashboard</span>
-              </button>
-            <button
-              type="button"
-              className="updates-header-button"
-              onClick={() =>
-                setShowUpdatesPanel((existing) => {
-                  const next = !existing;
-                  if (next) {
-                    setHubRailScrollVisible(true);
-                  }
-                  return next;
-                })
-              }
-            >
-              Updates
-            </button>
             {activeConversation.type === "group" ? (
-              <button type="button" className="group-info-button" onClick={handleOpenGroupInfo}>
-                Group Info
-              </button>
+              <div className="panel-header-actions">
+                <button type="button" className="group-info-button" onClick={handleOpenGroupInfo}>
+                  Group Info
+                </button>
+              </div>
             ) : null}
-            </div>
           </header>
 
           <div className="message-list">
@@ -2118,9 +2197,11 @@ function MainLayout() {
 
             </>
           ) : null}
-          <p className="chat-error" role="alert">
-            {chatError}
-          </p>
+          {chatError ? (
+            <p className="chat-error" role="alert">
+              {chatError}
+            </p>
+          ) : null}
           </div>
 
           {activeConversation ? (
@@ -2192,173 +2273,91 @@ function MainLayout() {
         {hubRailScrollVisible ? (
           <>
             <div id="hub-rail-scroll-region" ref={hubRailScrollRegionRef} className="hub-rail-scroll">
-          <section
-            className={`hub-daily-card${hubDailyExpanded ? "" : " hub-daily-card--collapsed"}`.trim()}
-            aria-labelledby="hub-daily-title"
-          >
-            <header className="updates-header hub-daily-card__header">
-          <div className="updates-header-profile-block">
-            <span className="hub-daily-eyebrow">Today</span>
-            <h3 id="hub-daily-title">Daily Updates</h3>
-            {selectedUpdatesProfile ? (
-              <div className="updates-header-profile-row">
-                <button
-                  type="button"
-                  className="updates-profile-chip"
-                  onClick={() => selectedUpdatesProfile?.id && handleViewUpdatesProfile(selectedUpdatesProfile.id)}
-                >
-                  {renderPresencePetAvatar(selectedUpdatesProfile, "md")}
-                  <span>{selectedUpdatesProfile.display_name}</span>
-                </button>
-              </div>
-            ) : null}
-          </div>
-          <div className="updates-header-trailing">
-            <div className="updates-calendar-wrap">
-            <button
-              type="button"
-              className="calendar-button"
-              aria-label="Choose timeline date"
-              onClick={() => setShowDatePicker((existing) => !existing)}
-            >
-              📅
-            </button>
-            {showDatePicker ? (
-              <div className="updates-date-dropdown">
-                {groupedUpdates.length === 0 ? (
-                  <p>No dates yet</p>
-                ) : (
-                  groupedUpdates.map(([dateKey]) => (
-                    <button key={dateKey} type="button" onClick={() => handleJumpToDate(dateKey)}>
-                      {formatTimelineDateLabel(dateKey)}
-                    </button>
-                  ))
-                )}
-              </div>
-            ) : null}
-            </div>
-            <button
-              type="button"
-              className="hub-widget-toggle hub-rail-hide-sidebar-btn"
-              onClick={collapseUpdatesRail}
-              aria-label="Hide Updates sidebar"
-              title="Hide Updates sidebar"
-            >
-              <span className="hub-widget-toggle-icon" aria-hidden>
-                »
-              </span>
-            </button>
-            <button
-              type="button"
-              className="hub-widget-toggle hub-daily-card-toggle"
-              onClick={() => setHubDailyExpanded((existing) => !existing)}
-              aria-expanded={hubDailyExpanded}
-              aria-controls="hub-daily-collapsible"
-              title={hubDailyExpanded ? "Minimize daily updates" : "Expand daily updates"}
-            >
-              <span className="hub-widget-toggle-icon" aria-hidden>
-                {hubDailyExpanded ? "−" : "+"}
-              </span>
-            </button>
-          </div>
-        </header>
+              {!isTeamDashboardView ? (
+                <DailyUpdatesSection
+                  variant="hub"
+                  onHideRail={collapseUpdatesRail}
+                  timelineScrollRef={timelineScrollRef}
+                  currentProfile={currentProfile}
+                  selectedUpdatesUserId={selectedUpdatesUserId}
+                  selectedUpdatesProfile={selectedUpdatesProfile}
+                  timelineInput={timelineInput}
+                  onTimelineInputChange={setTimelineInput}
+                  timelineLoading={timelineLoading}
+                  timelineError={timelineError}
+                  groupedUpdates={groupedUpdates}
+                  expandedDatesForUser={expandedDatesForSelectedUser}
+                  onToggleDateGroup={toggleDateGroup}
+                  expandedUpdateIds={expandedUpdateIds}
+                  onToggleExpandedUpdate={(updateId) =>
+                    setExpandedUpdateIds((existing) => {
+                      const next = new Set(existing);
+                      if (next.has(updateId)) {
+                        next.delete(updateId);
+                      } else {
+                        next.add(updateId);
+                      }
+                      return next;
+                    })
+                  }
+                  onDeleteUpdate={handleDeleteUpdate}
+                  isPostingUpdate={isPostingUpdate}
+                  onPostUpdate={handlePostUpdate}
+                  hubDailyExpanded={hubDailyExpanded}
+                  onHubDailyExpandedToggle={() => setHubDailyExpanded((v) => !v)}
+                  calendarWeekOffset={timelineCalendarWeekOffset}
+                  onCalendarWeekOffsetDelta={(delta) => setTimelineCalendarWeekOffset((o) => o + delta)}
+                  updatesDateKeySet={updatesDateKeySet}
+                  onJumpToDate={handleJumpToDate}
+                  onViewUpdatesProfile={handleViewUpdatesProfile}
+                  renderPresencePetAvatar={renderPresencePetAvatar}
+                />
+              ) : null}
 
-        <div id="hub-daily-collapsible" className="hub-daily-card__collapsible" hidden={!hubDailyExpanded}>
-        {selectedUpdatesUserId === currentProfile?.id ? (
-          <div className="updates-composer">
-            <textarea
-              placeholder="Share an update..."
-              value={timelineInput}
-              onChange={(event) => setTimelineInput(event.target.value)}
-              rows={3}
-            />
-            <button type="button" onClick={() => void handlePostUpdate()} disabled={isPostingUpdate || !timelineInput.trim()}>
-              {isPostingUpdate ? "Updating..." : "Update"}
-            </button>
-          </div>
-        ) : null}
+              {isTeamDashboardView && primarySidebarTab === "timeline" ? (
+                <div className="hub-rail-timeline-daily sidebar-tab-sheet--timeline">
+                  <DailyUpdatesSection
+                    variant="timeline"
+                    onHideRail={collapseUpdatesRail}
+                    timelineScrollRef={timelineScrollRef}
+                    currentProfile={currentProfile}
+                    selectedUpdatesUserId={selectedUpdatesUserId}
+                    selectedUpdatesProfile={selectedUpdatesProfile}
+                    timelineInput={timelineInput}
+                    onTimelineInputChange={setTimelineInput}
+                    timelineLoading={timelineLoading}
+                    timelineError={timelineError}
+                    groupedUpdates={groupedUpdates}
+                    expandedDatesForUser={expandedDatesForSelectedUser}
+                    onToggleDateGroup={toggleDateGroup}
+                    expandedUpdateIds={expandedUpdateIds}
+                    onToggleExpandedUpdate={(updateId) =>
+                      setExpandedUpdateIds((existing) => {
+                        const next = new Set(existing);
+                        if (next.has(updateId)) {
+                          next.delete(updateId);
+                        } else {
+                          next.add(updateId);
+                        }
+                        return next;
+                      })
+                    }
+                    onDeleteUpdate={handleDeleteUpdate}
+                    isPostingUpdate={isPostingUpdate}
+                    onPostUpdate={handlePostUpdate}
+                    hubDailyExpanded={hubDailyExpanded}
+                    onHubDailyExpandedToggle={() => setHubDailyExpanded((v) => !v)}
+                    calendarWeekOffset={timelineCalendarWeekOffset}
+                    onCalendarWeekOffsetDelta={(delta) => setTimelineCalendarWeekOffset((o) => o + delta)}
+                    updatesDateKeySet={updatesDateKeySet}
+                    onJumpToDate={handleJumpToDate}
+                    onViewUpdatesProfile={handleViewUpdatesProfile}
+                    renderPresencePetAvatar={renderPresencePetAvatar}
+                  />
+                </div>
+              ) : null}
 
-        <div className="updates-timeline" ref={timelineScrollRef}>
-          {timelineLoading ? <p className="empty-state">Loading updates...</p> : null}
-          {!timelineLoading && groupedUpdates.length === 0 ? (
-            <p className="empty-state">No updates yet for this profile.</p>
-          ) : null}
-          {groupedUpdates.map(([dateKey, dateUpdates], groupIndex) => {
-            const explicitState = (expandedDatesByUserId[selectedUpdatesUserId ?? ""] ?? {})[dateKey];
-            const isExpanded = explicitState ?? groupIndex < 2;
-            return (
-              <section key={dateKey} data-date-key={dateKey} className="timeline-date-group">
-                <button type="button" className="timeline-date-toggle" onClick={() => toggleDateGroup(dateKey)}>
-                  <span>{formatTimelineDateLabel(dateKey)}</span>
-                  <span>{isExpanded ? "−" : "+"}</span>
-                </button>
-                {isExpanded ? (
-                  <div className="timeline-date-items">
-                    {dateUpdates.map((update) => {
-                      const expanded = expandedUpdateIds.has(update.id);
-                      const isLong = update.body.length > 160 || update.body.includes("\n");
-                      return (
-                        <article key={update.id} className="timeline-item">
-                          <div className="timeline-time">
-                            <span>{new Date(update.created_at).toLocaleDateString([], { month: "short", day: "numeric" })}</span>
-                            <span>{new Date(update.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-                          </div>
-                          <div className="timeline-axis" aria-hidden="true">
-                            <span className="timeline-dot" />
-                            <span className="timeline-line" />
-                          </div>
-                          <div className="timeline-content">
-                            <p className={expanded ? "timeline-body" : "timeline-body timeline-body-clamped"}>{update.body}</p>
-                            <div className="timeline-actions">
-                              {isLong ? (
-                                <button
-                                  type="button"
-                                  className="timeline-expand"
-                                  onClick={() =>
-                                    setExpandedUpdateIds((existing) => {
-                                      const next = new Set(existing);
-                                      if (next.has(update.id)) {
-                                        next.delete(update.id);
-                                      } else {
-                                        next.add(update.id);
-                                      }
-                                      return next;
-                                    })
-                                  }
-                                >
-                                  {expanded ? "Show less" : "Show more"}
-                                </button>
-                              ) : (
-                                <span />
-                              )}
-                              {update.user_id === currentProfile?.id ? (
-                                <button
-                                  type="button"
-                                  className="timeline-delete"
-                                  aria-label="Delete update"
-                                  onClick={() => void handleDeleteUpdate(update.id)}
-                                >
-                                  Delete
-                                </button>
-                              ) : null}
-                            </div>
-                          </div>
-                        </article>
-                      );
-                    })}
-                  </div>
-                ) : null}
-              </section>
-            );
-          })}
-        </div>
-            <p className="chat-error hub-daily-card__error" role="alert">
-              {timelineError}
-            </p>
-        </div>
-          </section>
-
-          {currentProfile ? (
+          {currentProfile && !(isTeamDashboardView && primarySidebarTab === "timeline") ? (
             <HubRailWidgets
               currentProfile={currentProfile}
               activeUsers={activeUsers}
@@ -2434,15 +2433,18 @@ function MainLayout() {
         <button
           type="button"
           className="updates-toggle-mobile"
-          onClick={() =>
+          onClick={() => {
+            if (isTeamDashboardView) {
+              setPrimarySidebarTab("timeline");
+            }
             setShowUpdatesPanel((existing) => {
               const next = !existing;
               if (next) {
                 setHubRailScrollVisible(true);
               }
               return next;
-            })
-          }
+            });
+          }}
         >
           Updates
         </button>

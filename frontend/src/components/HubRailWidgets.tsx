@@ -96,7 +96,7 @@ export function HubRailWidgets({
   onOpenDm,
   onOpenGroup,
 }: HubRailWidgetsProps) {
-  /* Start collapsed so Daily Updates stays in view; expand sections as needed */
+  /* Start collapsed so the rail stays compact; expand sections as needed */
   const [activityExpanded, setActivityExpanded] = useState(false);
   const [leaderboardExpanded, setLeaderboardExpanded] = useState(false);
   const [eventsExpanded, setEventsExpanded] = useState(false);
@@ -175,7 +175,7 @@ export function HubRailWidgets({
     return [
       { id: "standup", title: "Team standup", detail: "Weekdays · 9:30 AM", hint: "Video link in #general" },
       { id: "retro", title: "Weekly retro", detail: `${fmt(new Date(monday.getTime() + 4 * 86400000))} · 3:00 PM`, hint: "Calendar invite TBD" },
-      { id: "updates", title: "Daily updates deadline", detail: "End of day · your timezone", hint: "Post in Daily Updates" },
+      { id: "updates", title: "Daily updates deadline", detail: "End of day · your timezone", hint: "Post from Timeline in the sidebar" },
     ];
   }, []);
 
