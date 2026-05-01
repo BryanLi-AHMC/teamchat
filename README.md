@@ -73,7 +73,16 @@ FRONTEND_ORIGINS=http://localhost:5173,http://localhost:5174,http://localhost:51
 ### Frontend (`frontend/.env`)
 ```env
 VITE_API_BASE_URL=http://localhost:3003/api
+# Or use VITE_API_URL with the same value (supported for Cloudflare Pages).
 ```
+
+### Cloudflare Pages (production)
+
+- **Root directory:** `frontend`  
+- **Build command:** `npm run build`  
+- **Build output:** `dist` (not `/dist` from the monorepo root)  
+- **Environment variables (Production and Preview):** set `VITE_API_URL` *or* `VITE_API_BASE_URL` (same URL, usually `https://<api-host>/api`), plus `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. Redeploy after any change.  
+- If you still see **old** error text after a deploy, purge cache / hard-refresh: `frontend/public/_headers` tells Pages not to cache HTML; you may also need **Caching → Purge Everything** in the dashboard once.
 
 ## API Endpoints (starter)
 - `GET /api/health`
