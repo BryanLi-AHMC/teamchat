@@ -100,6 +100,8 @@ export function PetAvatar({
             src={option.imageUrl}
             alt=""
             className={petImgClass}
+            draggable={false}
+            onDragStart={(e) => e.preventDefault()}
             onError={handlePetError}
             loading="lazy"
             decoding="async"
@@ -117,6 +119,8 @@ export function PetAvatar({
           alt=""
           className={`pet-avatar__img h-full w-full ${clip === "soft" ? "object-contain" : "object-cover"}`}
           style={{ imageRendering: "auto" }}
+          draggable={false}
+          onDragStart={(e) => e.preventDefault()}
           onError={() => setUrlSrcFailed(true)}
           loading="lazy"
           decoding="async"

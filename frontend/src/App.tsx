@@ -53,7 +53,8 @@ import { HubRailWidgets } from "./components/HubRailWidgets";
 import { TeamPetDashboard } from "./components/TeamPetDashboard";
 import { TimelineWeekCalendar } from "./components/TimelineWeekCalendar";
 import { CurrentUserPlayerCard } from "./components/CurrentUserPlayerCard";
-import { SidebarPrimaryNav, type SidebarPrimaryTabId } from "./components/SidebarPrimaryNav";
+import { WorkspaceNavTree } from "./components/WorkspaceNavTree";
+import type { SidebarPrimaryTabId } from "./components/workspaceNavConstants";
 import { DailyUpdatesSection } from "./components/DailyUpdatesSection";
 import { PET_OPTIONS, isValidPetId } from "./constants/pets";
 import { getThemeCssVars, readStoredThemeId, TEAMCHAT_SELECTED_THEME_STORAGE_KEY } from "./utils/theme";
@@ -453,6 +454,9 @@ function MainLayout() {
   const [primarySidebarTab, setPrimarySidebarTab] = useState<SidebarPrimaryTabId>("home");
   const [hubDailyExpanded, setHubDailyExpanded] = useState(true);
   const [hubRailScrollVisible, setHubRailScrollVisible] = useState(true);
+  const [hideWorkspaceSidebarColumn, setHideWorkspaceSidebarColumn] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 900px)").matches
+  );
   const [timelineCalendarWeekOffset, setTimelineCalendarWeekOffset] = useState(0);
   const [restoredConversationId, setRestoredConversationId] = useState<string | null>(null);
   const timelineScrollRef = useRef<HTMLDivElement | null>(null);
@@ -466,15 +470,6 @@ function MainLayout() {
   const socketRef = useRef<ReturnType<typeof getSocketClient> | null>(null);
   const activeConversationIdRef = useRef<string | null>(null);
   const socketConnectJoinHandlerRef = useRef<(() => void) | null>(null);
-
-  useEffect(() => {
-    console.log("[chat/debug] identity-and-route", {
-      currentUserId: currentProfile?.id ?? null,
-      currentUserEmail: currentProfile?.email ?? null,
-      routeConversationId: conversationIdFromRoute ?? null,
-      selectedConversationId: activeConversation?.id ?? null,
-    });
-  }, [activeConversation?.id, conversationIdFromRoute, currentProfile?.email, currentProfile?.id]);
 
   useEffect(() => {
     if (!selectedPetId) {
@@ -532,6 +527,14 @@ function MainLayout() {
     syncHubRail();
     mq.addEventListener("change", syncHubRail);
     return () => mq.removeEventListener("change", syncHubRail);
+  }, []);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 900px)");
+    const sync = () => setHideWorkspaceSidebarColumn(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
   }, []);
 
   useEffect(() => {
@@ -744,14 +747,6 @@ function MainLayout() {
         ]);
         const memberIds = members.map((member) => member.user_id);
         const isMember = memberIds.includes(currentProfile.id);
-        console.log("[chat/debug] route-membership-check", {
-          currentUserId: currentProfile.id,
-          currentUserEmail: currentProfile.email,
-          routeConversationId: conversationIdFromRoute,
-          selectedConversationId: activeConversationIdRef.current,
-          memberIds,
-          isMember,
-        });
         if (!isMember) {
           throw new Error("Not a member of this conversation.");
         }
@@ -975,12 +970,6 @@ function MainLayout() {
         return;
       }
 
-      console.log("[socket] session token exists", {
-        hasToken: Boolean(accessToken),
-        tokenPrefix: accessToken.slice(0, 12),
-        socketUrl: getResolvedSocketUrl(),
-      });
-
       const nextSocket = getSocketClient(accessToken);
       bindSocketListeners(nextSocket);
     };
@@ -1003,11 +992,6 @@ function MainLayout() {
         return;
       }
 
-      console.log("[socket] session token exists", {
-        hasToken: Boolean(session.access_token),
-        tokenPrefix: session.access_token.slice(0, 12),
-        socketUrl: getResolvedSocketUrl(),
-      });
       const nextSocket = getSocketClient(session.access_token);
       bindSocketListeners(nextSocket);
     });
@@ -1290,6 +1274,7 @@ function MainLayout() {
       setUnreadByConversationId((existing) => ({ ...existing, [conversationId]: 0 }));
       setDmConversationByUserId((existing) => ({ ...existing, [targetUserId]: conversationId }));
       setActiveConversation(await getConversationById(conversationId));
+      setPrimarySidebarTab("messages");
       navigate(`/chat/${conversationId}`);
       await refreshGroups();
     } catch (error) {
@@ -1348,15 +1333,15 @@ function MainLayout() {
           void openGroupConversation(group);
           return;
         }
-        const dmUserId = Object.entries(dmConversationByUserId).find(
-          ([, convId]) => convId === lastMessagedConversationId
-        )?.[0];
-        if (dmUserId) {
-          void openDmConversation(dmUserId);
-          return;
-        }
       }
       setPrimarySidebarTab("messages");
+      return;
+    }
+
+    if (tab === "timeline" && activeConversation) {
+      goToDashboard({ sidebarTab: "timeline" });
+      setHubRailScrollVisible(true);
+      setShowUpdatesPanel(true);
       return;
     }
 
@@ -1618,11 +1603,6 @@ function MainLayout() {
   const handleSend = async (event?: FormEvent<HTMLFormElement> | ReactMouseEvent<HTMLButtonElement>) => {
     event?.preventDefault();
 
-    console.log("[handleSend]", {
-      activeConversationId: activeConversation?.id,
-      body: composerText,
-    });
-
     if (!activeConversation?.id || !composerText.trim()) {
       return;
     }
@@ -1821,9 +1801,28 @@ function MainLayout() {
     return <div className="route-loading">Loading TeamChat...</div>;
   }
 
-  const appShellTheme = getThemeCssVars(selectedThemeColor) as CSSProperties;
+  const workspaceNavTree =
+    currentProfile ? (
+      <WorkspaceNavTree
+        activeTab={primarySidebarTab}
+        onSelectTab={handlePrimarySidebarTab}
+        messagesBadgeCount={totalSidebarUnread}
+        activeUsers={activeUsers}
+        groupConversations={groupConversations}
+        dmConversationByUserId={dmConversationByUserId}
+        unreadByConversationId={unreadByConversationId}
+        latestMessageByConversationId={latestMessageByConversationId}
+        activeConversationId={activeConversation?.id}
+        onOpenDm={(userId) => void openDmConversation(userId)}
+        onOpenGroup={openGroupConversation}
+        onViewUpdatesProfile={handleViewUpdatesProfile}
+        onNewGroup={() => setShowGroupModal(true)}
+        formatUnreadCount={formatUnreadCount}
+        renderPresencePetAvatar={renderPresencePetAvatar}
+      />
+    ) : null;
 
-  const showSidebarPrimaryTabs = isTeamDashboardView && primarySidebarTab === "home";
+  const appShellTheme = getThemeCssVars(selectedThemeColor) as CSSProperties;
 
   return (
     <div className="app-container">
@@ -1858,147 +1857,23 @@ function MainLayout() {
             </div>
           ) : null}
 
-          {showSidebarPrimaryTabs ? (
-            <SidebarPrimaryNav
-              activeTab={primarySidebarTab}
-              onSelectTab={handlePrimarySidebarTab}
-              messagesBadgeCount={totalSidebarUnread}
-            />
-          ) : null}
-
-          {isTeamDashboardView && primarySidebarTab !== "home" && primarySidebarTab !== "messages" ? (
-            <div className="sidebar-main-menu-row">
-              <button type="button" className="sidebar-main-menu-btn" onClick={() => setPrimarySidebarTab("home")}>
-                ← Main menu
-              </button>
-            </div>
-          ) : null}
+          <div className="sidebar-below-player-scroll">
+            {!hideWorkspaceSidebarColumn ? workspaceNavTree : null}
 
           <div className="sidebar-tab-panel">
-            {primarySidebarTab === "messages" || !isTeamDashboardView ? (
+            {!isTeamDashboardView ? (
               <div className="sidebar-body-scroll">
-                {!isTeamDashboardView ? (
-                  <div className="sidebar-main-menu-row">
-                    <button type="button" className="sidebar-main-menu-btn" onClick={() => goToDashboard()}>
-                      ← Main menu
-                    </button>
-                  </div>
-                ) : null}
-                {isTeamDashboardView && primarySidebarTab === "messages" ? (
-                  <div className="sidebar-main-menu-row">
-                    <button type="button" className="sidebar-main-menu-btn" onClick={() => setPrimarySidebarTab("home")}>
-                      ← Main menu
-                    </button>
-                  </div>
-                ) : null}
-
-                <nav className="sidebar-sections">
-                  <section>
-                    <h2>Direct Messages</h2>
-                    <ul>
-                      {activeUsers.map((user) => (
-                        <li key={user.id}>
-                          {(() => {
-                            const dmConversationId = dmConversationByUserId[user.id];
-                            const unreadCount = unreadByConversationId[dmConversationId] ?? 0;
-                            const latestMessage = dmConversationId
-                              ? latestMessageByConversationId[dmConversationId]
-                              : undefined;
-                            const preview =
-                              latestMessage?.body?.trim() ||
-                              (latestMessage?.message_type === "image"
-                                ? "Image attachment"
-                                : latestMessage?.message_type === "file"
-                                  ? latestMessage.attachment_name || "File attachment"
-                                  : "");
-                            return (
-                              <button
-                                type="button"
-                                className={`sidebar-item ${activeConversation?.id === dmConversationId ? "sidebar-item-active" : ""}`}
-                                onClick={() => void openDmConversation(user.id)}
-                              >
-                                <span className="sidebar-item-main">
-                                  <span
-                                    role="button"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      handleViewUpdatesProfile(user.id);
-                                    }}
-                                  >
-                                    {renderPresencePetAvatar(user, "sm")}
-                                  </span>
-                                  <span className="sidebar-item-text-wrap">
-                                    <span
-                                      className="sidebar-item-name"
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        handleViewUpdatesProfile(user.id);
-                                      }}
-                                    >
-                                      {user.display_name}
-                                    </span>
-                                    <span className="sidebar-item-preview">
-                                      {preview ? preview : "No messages yet"}
-                                    </span>
-                                  </span>
-                                </span>
-                                {unreadCount > 0 ? (
-                                  <span className="unread-badge">{formatUnreadCount(unreadCount)}</span>
-                                ) : null}
-                              </button>
-                            );
-                          })()}
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-
-                  <section>
-                    <div className="section-header-row">
-                      <h2>Group Chats</h2>
-                      <button type="button" className="new-group-button" onClick={() => setShowGroupModal(true)}>
-                        + New Group
-                      </button>
-                    </div>
-                    <ul>
-                      {groupConversations.map((group) => (
-                        <li key={group.id}>
-                          {(() => {
-                            const unreadCount = unreadByConversationId[group.id] ?? 0;
-                            const latestMessage = latestMessageByConversationId[group.id];
-                            const preview =
-                              latestMessage?.body?.trim() ||
-                              (latestMessage?.message_type === "image"
-                                ? "Image attachment"
-                                : latestMessage?.message_type === "file"
-                                  ? latestMessage.attachment_name || "File attachment"
-                                  : "");
-                            return (
-                              <button
-                                type="button"
-                                className={`sidebar-item ${activeConversation?.id === group.id ? "sidebar-item-active" : ""}`}
-                                onClick={() => void openGroupConversation(group)}
-                              >
-                                <span className="sidebar-item-main">
-                                  <span className="avatar avatar-sm avatar-group" aria-hidden="true">
-                                    {(group.title || "Group").slice(0, 1).toUpperCase()}
-                                  </span>
-                                  <span className="sidebar-item-text-wrap">
-                                    <span className="sidebar-item-name">{group.title || "Untitled group"}</span>
-                                    <span className="sidebar-item-preview">{preview ? preview : "No messages yet"}</span>
-                                  </span>
-                                </span>
-                                {unreadCount > 0 ? (
-                                  <span className="unread-badge">{formatUnreadCount(unreadCount)}</span>
-                                ) : null}
-                              </button>
-                            );
-                          })()}
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                </nav>
+                <p className="sidebar-tab-sheet__muted sidebar-left-chat-hint">
+                  Switch chats from <strong className="sidebar-tab-sheet__strong">Messages</strong> in the tree above
+                  (expand to see DMs and groups).
+                </p>
+              </div>
+            ) : isTeamDashboardView && primarySidebarTab === "messages" ? (
+              <div className="sidebar-body-scroll">
+                <p className="sidebar-tab-sheet__muted sidebar-left-chat-hint">
+                  Choose a direct message or group under <strong className="sidebar-tab-sheet__strong">Messages</strong>{" "}
+                  in the tree above.
+                </p>
               </div>
             ) : primarySidebarTab === "home" ? null : (
               <div className="sidebar-body-scroll sidebar-tab-sheet">
@@ -2012,8 +1887,8 @@ function MainLayout() {
                   <>
                     <p className="sidebar-tab-sheet__title">Timeline</p>
                     <p className="sidebar-tab-sheet__muted">
-                      Your week view is in the center. Daily updates, the week strip, and your update history are in the
-                      column on the right. Use the hide control (») on that panel if you want to tuck it away.
+                      Your week view is in the center. Daily updates live in the workspace panel on the right. Use the
+                      hide control (») on that panel if you want to tuck it away.
                     </p>
                   </>
                 ) : null}
@@ -2021,7 +1896,8 @@ function MainLayout() {
                   <>
                     <p className="sidebar-tab-sheet__title">Team · Pets &amp; Rewards</p>
                     <p className="sidebar-tab-sheet__muted">
-                      The center map shows everyone&apos;s pets. Drag desks to rearrange (except the leader). Earn XP from
+                      The center map shows everyone&apos;s pets. Drag empty map space to pan and use the scroll wheel to
+                      zoom; drag your character on the map to place yourself (saved on this device). Earn XP from
                       daily updates in the Timeline tab.
                     </p>
                     <button type="button" className="sidebar-tab-sheet__cta" onClick={() => goToDashboard()}>
@@ -2041,6 +1917,19 @@ function MainLayout() {
               </div>
             )}
           </div>
+          </div>
+
+          {currentProfile ? (
+            <div className="sidebar-footer-bar">
+              <button
+                type="button"
+                className="sidebar-sign-out-btn"
+                onClick={() => void handleLogout()}
+              >
+                Sign out
+              </button>
+            </div>
+          ) : null}
         </div>
       </aside>
 
@@ -2060,8 +1949,8 @@ function MainLayout() {
                 dmConversationByUserId={dmConversationByUserId}
                 unreadByConversationId={unreadByConversationId}
                 totalXpByUserId={totalXpByUserId}
-                onLogout={() => void handleLogout()}
                 onOpenTeammateDm={(userId) => void openDmConversation(userId)}
+                onOpenSelfIdentity={() => setShowIdentityBar(true)}
               />
             )
           ) : null}
@@ -2272,7 +2161,12 @@ function MainLayout() {
       >
         {hubRailScrollVisible ? (
           <>
-            <div id="hub-rail-scroll-region" ref={hubRailScrollRegionRef} className="hub-rail-scroll">
+              <div
+                id="hub-rail-scroll-region"
+                ref={hubRailScrollRegionRef}
+                className="hub-rail-scroll hub-rail-scroll--solo"
+              >
+              {hideWorkspaceSidebarColumn ? workspaceNavTree : null}
               {!isTeamDashboardView ? (
                 <DailyUpdatesSection
                   variant="hub"
@@ -2357,7 +2251,9 @@ function MainLayout() {
                 </div>
               ) : null}
 
-          {currentProfile && !(isTeamDashboardView && primarySidebarTab === "timeline") ? (
+          {currentProfile &&
+          !(isTeamDashboardView && primarySidebarTab === "timeline") &&
+          !(!isTeamDashboardView && primarySidebarTab === "messages") ? (
             <HubRailWidgets
               currentProfile={currentProfile}
               activeUsers={activeUsers}
@@ -2369,7 +2265,19 @@ function MainLayout() {
               onOpenGroup={openGroupConversation}
             />
           ) : null}
-        </div>
+
+          {hideWorkspaceSidebarColumn && currentProfile ? (
+            <div className="hub-rail-sign-out-footer">
+              <button
+                type="button"
+                className="sidebar-sign-out-btn sidebar-sign-out-btn--on-light"
+                onClick={() => void handleLogout()}
+              >
+                Sign out
+              </button>
+            </div>
+          ) : null}
+              </div>
           </>
         ) : null}
       </aside>
@@ -2385,13 +2293,13 @@ function MainLayout() {
                 setShowUpdatesPanel(true);
               }
             }}
-            aria-label="Show updates column"
-            title="Show updates column"
+            aria-label="Show workspace panel"
+            title="Show workspace panel"
           >
             <span className="hub-rail-edge-tab-chevron" aria-hidden>
               »
             </span>
-            <span className="hub-rail-edge-tab-label">Updates</span>
+            <span className="hub-rail-edge-tab-label">Panel</span>
           </button>
         </div>
       ) : null}
@@ -2446,7 +2354,7 @@ function MainLayout() {
             });
           }}
         >
-          Updates
+          Panel
         </button>
       ) : null}
 

@@ -24,6 +24,8 @@ type ActivityRow = {
   group?: ConversationSummary;
 };
 
+const ACTIVITY_PREVIEW_MAX = 6;
+
 function messagePreview(message: ChatMessage): string {
   const body = message.body?.trim();
   if (body) return body;
@@ -96,10 +98,11 @@ export function HubRailWidgets({
   onOpenDm,
   onOpenGroup,
 }: HubRailWidgetsProps) {
-  /* Start collapsed so the rail stays compact; expand sections as needed */
-  const [activityExpanded, setActivityExpanded] = useState(false);
-  const [leaderboardExpanded, setLeaderboardExpanded] = useState(false);
-  const [eventsExpanded, setEventsExpanded] = useState(false);
+  /* Only activity + leaderboard: start expanded so the rail is useful at a glance */
+  const [activityExpanded, setActivityExpanded] = useState(true);
+  const [leaderboardExpanded, setLeaderboardExpanded] = useState(true);
+  /** When true, Team activity shows every row; when false, only the first six rows. */
+  const [activityShowAllRows, setActivityShowAllRows] = useState(false);
 
   const profileById = useMemo(() => {
     const map = new Map<string, InternalProfile>();
@@ -153,7 +156,7 @@ export function HubRailWidgets({
     }
 
     rows.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-    return rows.slice(0, 8);
+    return rows;
   }, [groupConversations, latestMessageByConversationId, profileById, userIdByDmConversationId]);
 
   const leaderboard = useMemo(() => {
@@ -164,20 +167,10 @@ export function HubRailWidgets({
     return ranked.slice(0, 6);
   }, [activeUsers, currentProfile, totalXpByUserId]);
 
-  const upcomingEvents = useMemo(() => {
-    const now = new Date();
-    const dow = now.getDay();
-    const monday = new Date(now);
-    monday.setDate(now.getDate() - ((dow + 6) % 7));
-    const fmt = (d: Date) =>
-      d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
-
-    return [
-      { id: "standup", title: "Team standup", detail: "Weekdays · 9:30 AM", hint: "Video link in #general" },
-      { id: "retro", title: "Weekly retro", detail: `${fmt(new Date(monday.getTime() + 4 * 86400000))} · 3:00 PM`, hint: "Calendar invite TBD" },
-      { id: "updates", title: "Daily updates deadline", detail: "End of day · your timezone", hint: "Post from Timeline in the sidebar" },
-    ];
-  }, []);
+  const activityHasOverflow = activityRows.length > ACTIVITY_PREVIEW_MAX;
+  const activityOthersCount = activityRows.length - ACTIVITY_PREVIEW_MAX;
+  const activityVisibleRows =
+    activityShowAllRows || !activityHasOverflow ? activityRows : activityRows.slice(0, ACTIVITY_PREVIEW_MAX);
 
   return (
     <div className="hub-rail-widgets">
@@ -193,8 +186,10 @@ export function HubRailWidgets({
         {activityRows.length === 0 ? (
           <p className="hub-widget-empty">No messages yet. Open a chat to get started.</p>
         ) : (
-          <ul className="hub-activity-list">
-            {activityRows.map((row) => (
+          <ul
+            className={`hub-activity-list${activityHasOverflow && !activityShowAllRows ? " hub-activity-list--truncated" : ""}`.trim()}
+          >
+            {activityVisibleRows.map((row) => (
               <li key={row.conversationId}>
                 <button
                   type="button"
@@ -217,6 +212,37 @@ export function HubRailWidgets({
                 </button>
               </li>
             ))}
+            {activityHasOverflow && !activityShowAllRows ? (
+              <li className="hub-activity-others-li">
+                <button
+                  type="button"
+                  className="hub-activity-others-row"
+                  aria-expanded={false}
+                  aria-label={`Show ${activityOthersCount} more conversations`}
+                  onClick={() => setActivityShowAllRows(true)}
+                >
+                  <span className="hub-activity-others-label">Others ({activityOthersCount})</span>
+                  <span className="hub-activity-others-chevron" aria-hidden>
+                    ›
+                  </span>
+                </button>
+              </li>
+            ) : null}
+            {activityHasOverflow && activityShowAllRows ? (
+              <li className="hub-activity-others-li">
+                <button
+                  type="button"
+                  className="hub-activity-others-row hub-activity-others-row--collapse"
+                  aria-expanded={true}
+                  onClick={() => setActivityShowAllRows(false)}
+                >
+                  <span className="hub-activity-others-label">Show fewer</span>
+                  <span className="hub-activity-others-chevron hub-activity-others-chevron--up" aria-hidden>
+                    ›
+                  </span>
+                </button>
+              </li>
+            ) : null}
           </ul>
         )}
       </HubCollapsibleSection>
@@ -254,26 +280,6 @@ export function HubRailWidgets({
             );
           })}
         </ol>
-      </HubCollapsibleSection>
-
-      <HubCollapsibleSection
-        sectionId="hub-events"
-        titleId="hub-events-heading"
-        title="Calendar & rituals"
-        caption="This week on the team"
-        expanded={eventsExpanded}
-        onToggle={() => setEventsExpanded((v) => !v)}
-        widgetClass="hub-widget--events"
-      >
-        <ul className="hub-event-list">
-          {upcomingEvents.map((ev) => (
-            <li key={ev.id} className="hub-event-card">
-              <span className="hub-event-title">{ev.title}</span>
-              <span className="hub-event-detail">{ev.detail}</span>
-              <span className="hub-event-hint">{ev.hint}</span>
-            </li>
-          ))}
-        </ul>
       </HubCollapsibleSection>
     </div>
   );
