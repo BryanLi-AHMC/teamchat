@@ -16,6 +16,8 @@ export type ConversationMember = {
   conversation_id: string;
   user_id: string;
   joined_at: string;
+  /** Latest message this user has read (inclusive); drives read receipts. */
+  last_read_message_id: string | null;
 };
 
 export type ChatMessage = {
@@ -196,16 +198,37 @@ export async function getConversationById(conversationId: string) {
 }
 
 export async function getConversationMembers(conversationId: string) {
-  const { data, error } = await supabase
+  const extended = await supabase
     .from("conversation_members")
-    .select("conversation_id,user_id,joined_at")
+    .select("conversation_id,user_id,joined_at,last_read_message_id")
     .eq("conversation_id", conversationId);
 
-  if (error) {
-    throw new Error(error.message);
+  if (extended.error) {
+    const em = extended.error.message ?? "";
+    if (em.includes("last_read_message_id")) {
+      const { data, error } = await supabase
+        .from("conversation_members")
+        .select("conversation_id,user_id,joined_at")
+        .eq("conversation_id", conversationId);
+      if (error) {
+        throw new Error(error.message);
+      }
+      return (data ?? []).map((row) => ({
+        conversation_id: row.conversation_id,
+        user_id: row.user_id,
+        joined_at: row.joined_at,
+        last_read_message_id: null as string | null,
+      })) as ConversationMember[];
+    }
+    throw new Error(extended.error.message);
   }
 
-  return (data ?? []) as ConversationMember[];
+  return (extended.data ?? []).map((row) => ({
+    conversation_id: row.conversation_id,
+    user_id: row.user_id,
+    joined_at: row.joined_at,
+    last_read_message_id: row.last_read_message_id ?? null,
+  })) as ConversationMember[];
 }
 
 export async function getMessages(conversationId: string) {
@@ -347,5 +370,31 @@ export function toChatMessageFromSocket(payload: {
     attachment_size: payload.attachment?.size ?? null,
     created_at: payload.createdAt,
   };
+}
+
+/** Total order for messages in a conversation (time, then id). */
+export function compareMessagesForOrdering(a: ChatMessage, b: ChatMessage): number {
+  const ta = new Date(a.created_at).getTime();
+  const tb = new Date(b.created_at).getTime();
+  if (ta !== tb) {
+    return ta - tb;
+  }
+  return a.id.localeCompare(b.id);
+}
+
+/** True if the member's read cursor is at or past `target` (they have read `target`). */
+export function memberReadCursorIncludesMessage(
+  cursorMessageId: string | null | undefined,
+  target: ChatMessage,
+  messagesById: Map<string, ChatMessage>
+): boolean {
+  if (!cursorMessageId) {
+    return false;
+  }
+  const cursor = messagesById.get(cursorMessageId);
+  if (!cursor) {
+    return false;
+  }
+  return compareMessagesForOrdering(cursor, target) >= 0;
 }
 

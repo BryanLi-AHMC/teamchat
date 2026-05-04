@@ -4,8 +4,8 @@ import {
   FormEvent,
   KeyboardEvent,
   MouseEvent as ReactMouseEvent,
-  useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -26,13 +26,15 @@ import {
   getLatestMessagesByConversationId,
   getMessages,
   getOrCreateDmConversation,
+  memberReadCursorIncludesMessage,
   removeGroupMember,
   toChatMessageFromSocket,
+  compareMessagesForOrdering,
   type ChatMessage,
   type ConversationMember,
   type ConversationSummary,
 } from "./lib/chat";
-import { createMyUpdate, deleteMyUpdate, fetchUpdatesForUser, type UserUpdate } from "./lib/updates";
+import { createMyUpdate, deleteMyUpdate, fetchUpdatesForUser, userUpdateDisplayAtIso, type UserUpdate } from "./lib/updates";
 import { createTypingChannel, subscribeToTeamPresence } from "./lib/presence";
 import { awardMyUpdateXp, type UserStats } from "./lib/profileStats";
 import {
@@ -454,11 +456,9 @@ function MainLayout() {
   const [showIdentityBar, setShowIdentityBar] = useState(false);
   const [primarySidebarTab, setPrimarySidebarTab] = useState<SidebarPrimaryTabId>("home");
   const [hubDailyExpanded, setHubDailyExpanded] = useState(true);
-  const [hubRailScrollVisible, setHubRailScrollVisible] = useState(true);
   const [hideWorkspaceSidebarColumn, setHideWorkspaceSidebarColumn] = useState(
     () => typeof window !== "undefined" && window.matchMedia("(max-width: 900px)").matches
   );
-  const [timelineCalendarWeekOffset, setTimelineCalendarWeekOffset] = useState(0);
   const [timelineCalendarUserId, setTimelineCalendarUserId] = useState<string | null>(null);
   const [calendarReloadToken, setCalendarReloadToken] = useState(0);
   const [restoredConversationId, setRestoredConversationId] = useState<string | null>(null);
@@ -473,6 +473,7 @@ function MainLayout() {
   const socketRef = useRef<ReturnType<typeof getSocketClient> | null>(null);
   const activeConversationIdRef = useRef<string | null>(null);
   const socketConnectJoinHandlerRef = useRef<(() => void) | null>(null);
+  const messagesRef = useRef<ChatMessage[]>([]);
 
   useEffect(() => {
     if (!selectedPetId) {
@@ -519,18 +520,6 @@ function MainLayout() {
       document.body.style.overflow = previousOverflow;
     };
   }, [showIdentityBar]);
-
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 1200px)");
-    const syncHubRail = () => {
-      if (mq.matches) {
-        setHubRailScrollVisible(true);
-      }
-    };
-    syncHubRail();
-    mq.addEventListener("change", syncHubRail);
-    return () => mq.removeEventListener("change", syncHubRail);
-  }, []);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 900px)");
@@ -830,6 +819,28 @@ function MainLayout() {
   }, [activeConversation?.id]);
 
   useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    if (!activeConversation?.id || messages.length === 0) {
+      return;
+    }
+    const conversationId = activeConversation.id;
+    const latest = messages[messages.length - 1];
+    const timer = window.setTimeout(() => {
+      const sock = socketRef.current;
+      if (!sock?.connected || activeConversationIdRef.current !== conversationId) {
+        return;
+      }
+      sock.emit("message:read", { conversationId, lastReadMessageId: latest.id });
+    }, 400);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [activeConversation?.id, messages]);
+
+  useEffect(() => {
     const attachmentPaths = Array.from(
       new Set(messages.map((message) => message.attachment_path).filter((path): path is string => Boolean(path)))
     );
@@ -902,6 +913,30 @@ function MainLayout() {
       }
     };
 
+    const onMessageRead = (payload: { conversationId: string; userId: string; lastReadMessageId: string }) => {
+      if (cancelled || payload.conversationId !== activeConversationIdRef.current) {
+        return;
+      }
+      setActiveConversationMembers((prev) =>
+        prev.map((m) => {
+          if (m.user_id !== payload.userId) {
+            return m;
+          }
+          const byId = new Map(messagesRef.current.map((x) => [x.id, x]));
+          const prevId = m.last_read_message_id;
+          if (!prevId) {
+            return { ...m, last_read_message_id: payload.lastReadMessageId };
+          }
+          const prevMsg = byId.get(prevId);
+          const nextMsg = byId.get(payload.lastReadMessageId);
+          if (prevMsg && nextMsg && compareMessagesForOrdering(nextMsg, prevMsg) < 0) {
+            return m;
+          }
+          return { ...m, last_read_message_id: payload.lastReadMessageId };
+        })
+      );
+    };
+
     const onMessageError = (errorPayload: { message: string }) => {
       if (cancelled) {
         return;
@@ -922,6 +957,7 @@ function MainLayout() {
       const previousSocket = socketRef.current;
       if (previousSocket && previousSocket !== nextSocket) {
         previousSocket.off("message:new", onMessageNew);
+        previousSocket.off("message:read", onMessageRead);
         previousSocket.off("message:error", onMessageError);
         previousSocket.off("user:stats_updated", onUserStatsUpdated);
         if (socketConnectJoinHandlerRef.current) {
@@ -933,9 +969,11 @@ function MainLayout() {
         return;
       }
       nextSocket.off("message:new", onMessageNew);
+      nextSocket.off("message:read", onMessageRead);
       nextSocket.off("message:error", onMessageError);
       nextSocket.off("user:stats_updated", onUserStatsUpdated);
       nextSocket.on("message:new", onMessageNew);
+      nextSocket.on("message:read", onMessageRead);
       nextSocket.on("message:error", onMessageError);
       nextSocket.on("user:stats_updated", onUserStatsUpdated);
 
@@ -984,6 +1022,7 @@ function MainLayout() {
         const existingSocket = socketRef.current;
         if (existingSocket) {
           existingSocket.off("message:new", onMessageNew);
+          existingSocket.off("message:read", onMessageRead);
           existingSocket.off("message:error", onMessageError);
           existingSocket.off("user:stats_updated", onUserStatsUpdated);
           if (socketConnectJoinHandlerRef.current) {
@@ -1005,6 +1044,7 @@ function MainLayout() {
       const existingSocket = socketRef.current;
       if (existingSocket) {
         existingSocket.off("message:new", onMessageNew);
+        existingSocket.off("message:read", onMessageRead);
         existingSocket.off("message:error", onMessageError);
         existingSocket.off("user:stats_updated", onUserStatsUpdated);
         if (socketConnectJoinHandlerRef.current) {
@@ -1076,6 +1116,37 @@ function MainLayout() {
     }
     return new Map(allProfiles.map((profile) => [profile.id, profile]));
   }, [activeUsers, currentProfile]);
+
+  const readReceiptByMessageId = useMemo(() => {
+    const map = new Map<string, string>();
+    if (!currentProfile?.id) {
+      return map;
+    }
+    const byId = new Map(messages.map((m) => [m.id, m]));
+    const others = activeConversationMembers.filter((m) => m.user_id !== currentProfile.id);
+    if (others.length === 0) {
+      return map;
+    }
+    for (const message of messages) {
+      if (message.sender_id !== currentProfile.id) {
+        continue;
+      }
+      const readers = others.filter((m) => memberReadCursorIncludesMessage(m.last_read_message_id, message, byId));
+      if (readers.length === 0) {
+        continue;
+      }
+      if (readers.length === others.length) {
+        map.set(message.id, others.length === 1 ? "Read" : "Read by everyone");
+      } else if (readers.length === 1) {
+        const rid = readers[0]!.user_id;
+        const name = profileById.get(rid)?.display_name ?? "Teammate";
+        map.set(message.id, `Seen by ${name}`);
+      } else {
+        map.set(message.id, `Seen by ${readers.length} people`);
+      }
+    }
+    return map;
+  }, [messages, activeConversationMembers, currentProfile, profileById]);
 
   const teammateNameById = useMemo(() => {
     const m: Record<string, string> = {};
@@ -1167,15 +1238,24 @@ function MainLayout() {
   const groupedUpdates = useMemo(() => {
     const grouped = new Map<string, UserUpdate[]>();
     for (const update of selectedUpdates) {
-      const key = getDateKey(update.created_at);
+      const key = getDateKey(userUpdateDisplayAtIso(update));
       const existing = grouped.get(key) ?? [];
       existing.push(update);
       grouped.set(key, existing);
     }
-    return Array.from(grouped.entries()).sort(([a], [b]) => (a > b ? -1 : 1));
+    return Array.from(grouped.entries())
+      .map(
+        ([k, arr]) =>
+          [
+            k,
+            [...arr].sort(
+              (a, b) =>
+                new Date(userUpdateDisplayAtIso(b)).getTime() - new Date(userUpdateDisplayAtIso(a)).getTime()
+            ),
+          ] as const
+      )
+      .sort(([a], [b]) => (a > b ? -1 : 1));
   }, [selectedUpdates]);
-
-  const updatesDateKeySet = useMemo(() => new Set(groupedUpdates.map(([k]) => k)), [groupedUpdates]);
 
   const expandedDatesForSelectedUser = expandedDatesByUserId[selectedUpdatesUserId ?? ""] ?? {};
 
@@ -1252,15 +1332,19 @@ function MainLayout() {
 
   const isTeamDashboardView = !activeConversation && Boolean(currentProfile);
 
+  useLayoutEffect(() => {
+    if (!currentProfile?.id || !isTeamDashboardView || primarySidebarTab !== "home") {
+      return;
+    }
+    setSelectedUpdatesUserId(currentProfile.id);
+  }, [currentProfile?.id, isTeamDashboardView, primarySidebarTab]);
+
   const totalSidebarUnread = useMemo(
     () => Object.values(unreadByConversationId).reduce((sum, n) => sum + n, 0),
     [unreadByConversationId]
   );
 
   useEffect(() => {
-    if (!hubRailScrollVisible) {
-      return;
-    }
     const el = hubRailScrollRegionRef.current;
     if (!el) {
       return;
@@ -1271,7 +1355,7 @@ function MainLayout() {
         el.scrollTop = 0;
       });
     }
-  }, [isTeamDashboardView, hubRailScrollVisible, showUpdatesPanel, primarySidebarTab, currentProfile?.id]);
+  }, [isTeamDashboardView, showUpdatesPanel, primarySidebarTab, currentProfile?.id]);
 
   const canManageActiveGroup = useMemo(() => {
     if (!activeConversation || activeConversation.type !== "group" || !currentProfile) {
@@ -1382,7 +1466,6 @@ function MainLayout() {
 
     if (tab === "timeline" && activeConversation) {
       goToDashboard({ sidebarTab: "timeline" });
-      setHubRailScrollVisible(true);
       setShowUpdatesPanel(true);
       return;
     }
@@ -1392,7 +1475,6 @@ function MainLayout() {
       goToDashboard();
     }
     if (tab === "timeline") {
-      setHubRailScrollVisible(true);
       setShowUpdatesPanel(true);
     }
     if (tab === "settings") {
@@ -1402,15 +1484,6 @@ function MainLayout() {
       setShowIdentityBar(true);
     }
   };
-
-  /** Wide layout: docked third column. Narrow: slide-over drawer — do not clear hub content on drawer close. */
-  const collapseUpdatesRail = useCallback(() => {
-    if (typeof window !== "undefined" && window.matchMedia("(max-width: 1200px)").matches) {
-      setShowUpdatesPanel(false);
-      return;
-    }
-    setHubRailScrollVisible(false);
-  }, []);
 
   const handleLogout = async () => {
     const ok = window.confirm("Log out?");
@@ -1425,7 +1498,6 @@ function MainLayout() {
     if (!activeConversation) {
       setPrimarySidebarTab("timeline");
     }
-    setHubRailScrollVisible(true);
     if (targetUserId === selectedUpdatesUserId) {
       setShowUpdatesPanel(true);
       return;
@@ -1463,7 +1535,7 @@ function MainLayout() {
         ...existing,
         [currentProfile.id]: [created, ...(existing[currentProfile.id] ?? [])],
       }));
-      const todayKey = getDateKey(created.created_at);
+      const todayKey = getDateKey(userUpdateDisplayAtIso(created));
       setExpandedDatesByUserId((existing) => ({
         ...existing,
         [currentProfile.id]: {
@@ -1508,24 +1580,6 @@ function MainLayout() {
     } catch (error) {
       setTimelineError(error instanceof Error ? error.message : "Unable to delete update.");
     }
-  };
-
-  const handleJumpToDate = (dateKey: string) => {
-    if (!selectedUpdatesUserId) {
-      return;
-    }
-    setExpandedDatesByUserId((existing) => ({
-      ...existing,
-      [selectedUpdatesUserId]: {
-        ...(existing[selectedUpdatesUserId] ?? {}),
-        [dateKey]: true,
-      },
-    }));
-    requestAnimationFrame(() => {
-      const root = timelineScrollRef.current;
-      const target = root?.querySelector<HTMLElement>(`[data-date-key="${dateKey}"]`);
-      target?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
   };
 
   const handleOpenGroupInfo = () => {
@@ -1837,8 +1891,6 @@ function MainLayout() {
     }));
   }, [activeConversation?.id, currentProfile?.id]);
 
-  // TODO: Persist unread counts with server-backed read receipts per user/conversation.
-
   if (isInitializing) {
     return <div className="route-loading">Loading TeamChat...</div>;
   }
@@ -1857,7 +1909,6 @@ function MainLayout() {
         activeConversationId={activeConversation?.id}
         onOpenDm={(userId) => void openDmConversation(userId)}
         onOpenGroup={openGroupConversation}
-        onViewUpdatesProfile={handleViewUpdatesProfile}
         onNewGroup={() => setShowGroupModal(true)}
         formatUnreadCount={formatUnreadCount}
         renderPresencePetAvatar={renderPresencePetAvatar}
@@ -1873,10 +1924,7 @@ function MainLayout() {
           {levelUpToast}
         </div>
       ) : null}
-      <div
-        className={`app-shell${hubRailScrollVisible ? "" : " app-shell--hub-rail-collapsed"}`.trim()}
-        style={appShellTheme}
-      >
+      <div className="app-shell" style={appShellTheme}>
       <aside className="sidebar sidebar-panel">
         <div className="sidebar-layout">
           {currentProfile ? (
@@ -1930,8 +1978,7 @@ function MainLayout() {
                     <p className="sidebar-tab-sheet__title">Timeline</p>
                     <p className="sidebar-tab-sheet__muted">
                       The week grid is in the center. Pick a teammate in the right workspace panel to view their
-                      calendar, or schedule a collab or meeting from there. Use the hide control (») on that panel to tuck
-                      it away.
+                      calendar, or schedule a collab or meeting from there.
                     </p>
                   </>
                 ) : null}
@@ -1989,6 +2036,16 @@ function MainLayout() {
                 reloadToken={calendarReloadToken}
                 onCalendarChanged={() => setCalendarReloadToken((n) => n + 1)}
                 teamOverlayUserIds={teamCalendarOverlayUserIds}
+                onUserUpdatesChanged={() => {
+                  const uid = timelineCalendarUserId ?? currentProfile.id;
+                  void fetchUpdatesForUser(uid)
+                    .then((updates) => {
+                      setUpdatesByUserId((existing) => ({ ...existing, [uid]: updates }));
+                    })
+                    .catch(() => {
+                      /* rail may refetch when selected user changes */
+                    });
+                }}
                 readOnlyBanner={
                   (timelineCalendarUserId ?? currentProfile.id) !== currentProfile.id
                     ? `Viewing ${profileById.get(timelineCalendarUserId ?? currentProfile.id)?.display_name ?? "Teammate"}'s calendar (read only)`
@@ -2126,9 +2183,14 @@ function MainLayout() {
                         ) : null}
                         {message.message_type === "text" ? <p className="message-body">{message.body}</p> : null}
                       </div>
-                      <span className="message-time">
-                        {new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                      </span>
+                      <div className="message-meta-row">
+                        <span className="message-time">
+                          {new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                        {isOwn && readReceiptByMessageId.get(message.id) ? (
+                          <span className="message-read-receipt">{readReceiptByMessageId.get(message.id)}</span>
+                        ) : null}
+                      </div>
                     </div>
                   </article>
                 </div>
@@ -2215,8 +2277,7 @@ function MainLayout() {
       <aside
         className={`right-panel updates-panel hub-rail${showUpdatesPanel ? " updates-panel-open" : ""}`.trim()}
       >
-        {hubRailScrollVisible ? (
-          <>
+        <>
               <div
                 id="hub-rail-scroll-region"
                 ref={hubRailScrollRegionRef}
@@ -2226,7 +2287,6 @@ function MainLayout() {
               {!isTeamDashboardView ? (
                 <DailyUpdatesSection
                   variant="hub"
-                  onHideRail={collapseUpdatesRail}
                   timelineScrollRef={timelineScrollRef}
                   currentProfile={currentProfile}
                   selectedUpdatesUserId={selectedUpdatesUserId}
@@ -2255,10 +2315,6 @@ function MainLayout() {
                   onPostUpdate={handlePostUpdate}
                   hubDailyExpanded={hubDailyExpanded}
                   onHubDailyExpandedToggle={() => setHubDailyExpanded((v) => !v)}
-                  calendarWeekOffset={timelineCalendarWeekOffset}
-                  onCalendarWeekOffsetDelta={(delta) => setTimelineCalendarWeekOffset((o) => o + delta)}
-                  updatesDateKeySet={updatesDateKeySet}
-                  onJumpToDate={handleJumpToDate}
                   onViewUpdatesProfile={handleViewUpdatesProfile}
                   renderPresencePetAvatar={renderPresencePetAvatar}
                 />
@@ -2272,6 +2328,45 @@ function MainLayout() {
                   onSelectCalendarUserId={setTimelineCalendarUserId}
                   renderPresencePetAvatar={renderPresencePetAvatar}
                   onCalendarChanged={() => setCalendarReloadToken((n) => n + 1)}
+                />
+              ) : null}
+
+              {isTeamDashboardView &&
+              (primarySidebarTab === "home" || primarySidebarTab === "messages") &&
+              currentProfile ? (
+                <DailyUpdatesSection
+                  variant="hub"
+                  collapsible={false}
+                  timelineScrollRef={timelineScrollRef}
+                  currentProfile={currentProfile}
+                  selectedUpdatesUserId={selectedUpdatesUserId}
+                  selectedUpdatesProfile={selectedUpdatesProfile}
+                  timelineInput={timelineInput}
+                  onTimelineInputChange={setTimelineInput}
+                  timelineLoading={timelineLoading}
+                  timelineError={timelineError}
+                  groupedUpdates={groupedUpdates}
+                  expandedDatesForUser={expandedDatesForSelectedUser}
+                  onToggleDateGroup={toggleDateGroup}
+                  expandedUpdateIds={expandedUpdateIds}
+                  onToggleExpandedUpdate={(updateId) =>
+                    setExpandedUpdateIds((existing) => {
+                      const next = new Set(existing);
+                      if (next.has(updateId)) {
+                        next.delete(updateId);
+                      } else {
+                        next.add(updateId);
+                      }
+                      return next;
+                    })
+                  }
+                  onDeleteUpdate={handleDeleteUpdate}
+                  isPostingUpdate={isPostingUpdate}
+                  onPostUpdate={handlePostUpdate}
+                  hubDailyExpanded
+                  onHubDailyExpandedToggle={() => {}}
+                  onViewUpdatesProfile={handleViewUpdatesProfile}
+                  renderPresencePetAvatar={renderPresencePetAvatar}
                 />
               ) : null}
 
@@ -2302,32 +2397,9 @@ function MainLayout() {
             </div>
           ) : null}
               </div>
-          </>
-        ) : null}
+        </>
       </aside>
-
-      {!hubRailScrollVisible ? (
-        <div className="hub-rail-edge-tab-overlay">
-          <button
-            type="button"
-            className="hub-rail-edge-tab"
-            onClick={() => {
-              setHubRailScrollVisible(true);
-              if (typeof window !== "undefined" && window.matchMedia("(max-width: 1200px)").matches) {
-                setShowUpdatesPanel(true);
-              }
-            }}
-            aria-label="Show workspace panel"
-            title="Show workspace panel"
-          >
-            <span className="hub-rail-edge-tab-chevron" aria-hidden>
-              »
-            </span>
-            <span className="hub-rail-edge-tab-label">Panel</span>
-          </button>
-        </div>
-      ) : null}
-    </div>
+      </div>
 
       {isTeamDashboardView && currentProfile && showIdentityBar
         ? createPortal(
@@ -2369,13 +2441,7 @@ function MainLayout() {
             if (isTeamDashboardView) {
               setPrimarySidebarTab("timeline");
             }
-            setShowUpdatesPanel((existing) => {
-              const next = !existing;
-              if (next) {
-                setHubRailScrollVisible(true);
-              }
-              return next;
-            });
+            setShowUpdatesPanel((existing) => !existing);
           }}
         >
           Panel

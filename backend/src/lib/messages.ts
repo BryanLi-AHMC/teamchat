@@ -156,3 +156,30 @@ export async function insertMessage(
 
   return data as StoredMessage;
 }
+
+export async function updateMemberLastRead(
+  supabaseAdmin: SupabaseClient,
+  userId: string,
+  conversationId: string,
+  lastReadMessageId: string
+) {
+  const { data: msg, error: msgErr } = await supabaseAdmin
+    .from("messages")
+    .select("id,conversation_id")
+    .eq("id", lastReadMessageId)
+    .single();
+
+  if (msgErr || !msg || msg.conversation_id !== conversationId) {
+    throw new Error("Invalid read cursor.");
+  }
+
+  const { error } = await supabaseAdmin
+    .from("conversation_members")
+    .update({ last_read_message_id: lastReadMessageId })
+    .eq("conversation_id", conversationId)
+    .eq("user_id", userId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}

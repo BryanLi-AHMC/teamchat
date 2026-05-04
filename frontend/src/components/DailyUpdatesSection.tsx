@@ -1,10 +1,12 @@
 import type { RefObject, ReactNode } from "react";
 import type { InternalProfile } from "../lib/authProfile";
-import type { UserUpdate } from "../lib/updates";
-import { formatTimelineDateLabel, getLocalDateKey, getWeekDaysSunday } from "../utils/timelineDates";
+import { userUpdateDisplayAtIso, type UserUpdate } from "../lib/updates";
+import { formatTimelineDateLabel } from "../utils/timelineDates";
 
 export type DailyUpdatesSectionProps = {
   variant: "hub" | "timeline";
+  /** When false, the card stays fully open (no ± control). Used on Home above Team activity. */
+  collapsible?: boolean;
   /** Chat rail: hide third column. Omitted in timeline sidebar. */
   onHideRail?: () => void;
   timelineScrollRef: RefObject<HTMLDivElement | null>;
@@ -25,10 +27,6 @@ export type DailyUpdatesSectionProps = {
   onPostUpdate: () => void;
   hubDailyExpanded: boolean;
   onHubDailyExpandedToggle: () => void;
-  calendarWeekOffset: number;
-  onCalendarWeekOffsetDelta: (delta: -1 | 1) => void;
-  updatesDateKeySet: Set<string>;
-  onJumpToDate: (dateKey: string) => void;
   onViewUpdatesProfile: (userId: string) => void;
   renderPresencePetAvatar: (
     profile: InternalProfile | undefined,
@@ -39,6 +37,7 @@ export type DailyUpdatesSectionProps = {
 
 export function DailyUpdatesSection({
   variant,
+  collapsible = true,
   onHideRail,
   timelineScrollRef,
   currentProfile,
@@ -58,82 +57,28 @@ export function DailyUpdatesSection({
   onPostUpdate,
   hubDailyExpanded,
   onHubDailyExpandedToggle,
-  calendarWeekOffset,
-  onCalendarWeekOffsetDelta,
-  updatesDateKeySet,
-  onJumpToDate,
   onViewUpdatesProfile,
   renderPresencePetAvatar,
 }: DailyUpdatesSectionProps) {
   const isTimeline = variant === "timeline";
-  const weekDays = getWeekDaysSunday(calendarWeekOffset);
-  const todayKey = getLocalDateKey(new Date());
-  const tzLabel =
-    typeof Intl !== "undefined"
-      ? new Intl.DateTimeFormat(undefined, { timeZoneName: "short" }).formatToParts(new Date()).find((p) => p.type === "timeZoneName")?.value
-      : null;
+  const canCollapse = collapsible;
 
-  const weekStrip = (
-    <div
-      className={`updates-week-strip${isTimeline ? " updates-week-strip--timeline" : " updates-week-strip--hub"}`.trim()}
-    >
-      <div className="updates-week-strip__toolbar">
-        <button
-          type="button"
-          className="updates-week-strip__nav"
-          aria-label="Previous week"
-          onClick={() => onCalendarWeekOffsetDelta(-1)}
-        >
-          ‹
-        </button>
-        <span className="updates-week-strip__tz">{tzLabel ?? ""}</span>
-        <button
-          type="button"
-          className="updates-week-strip__nav"
-          aria-label="Next week"
-          onClick={() => onCalendarWeekOffsetDelta(1)}
-        >
-          ›
-        </button>
-      </div>
-      <div className="updates-week-strip__row" role="list">
-        {weekDays.map((d) => {
-          const key = getLocalDateKey(d);
-          const isToday = key === todayKey;
-          const hasUpdates = updatesDateKeySet.has(key);
-          const dow = d.toLocaleDateString([], { weekday: "short" }).toUpperCase();
-          const dayNum = d.getDate();
-          return (
-            <button
-              key={key}
-              type="button"
-              role="listitem"
-              className={`updates-week-day${isToday ? " updates-week-day--today" : ""}${hasUpdates ? " updates-week-day--has-updates" : ""}`.trim()}
-              onClick={() => onJumpToDate(key)}
-              title={formatTimelineDateLabel(key)}
-            >
-              <span className="updates-week-day__dow">{dow}</span>
-              <span className="updates-week-day__num">{dayNum}</span>
-              {hasUpdates ? <span className="updates-week-day__dot" aria-hidden /> : null}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-
-  const sectionClass =
-    `hub-daily-card${hubDailyExpanded ? "" : " hub-daily-card--collapsed"}${isTimeline ? " hub-daily-card--timeline-sidebar" : ""}`.trim();
+  const sectionClass = [
+    "hub-daily-card",
+    canCollapse && !hubDailyExpanded ? "hub-daily-card--collapsed" : "",
+    isTimeline ? "hub-daily-card--timeline-sidebar" : "",
+    !canCollapse && !isTimeline ? "hub-daily-card--pinned-home" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <section className={sectionClass} aria-labelledby="hub-daily-title">
-      {isTimeline ? weekStrip : null}
-
       <header className="updates-header hub-daily-card__header">
         <div className="updates-header-profile-block">
           <span className="hub-daily-eyebrow">Today</span>
-          <h3 id="hub-daily-title">Daily Updates</h3>
-          {selectedUpdatesProfile ? (
+          <h3 id="hub-daily-title">{canCollapse ? "Daily Updates" : "Your daily updates"}</h3>
+          {canCollapse && selectedUpdatesProfile ? (
             <div className="updates-header-profile-row">
               <button
                 type="button"
@@ -160,31 +105,35 @@ export function DailyUpdatesSection({
               </span>
             </button>
           ) : null}
-          <button
-            type="button"
-            className="hub-widget-toggle hub-daily-card-toggle"
-            onClick={onHubDailyExpandedToggle}
-            aria-expanded={hubDailyExpanded}
-            aria-controls="hub-daily-collapsible"
-            title={hubDailyExpanded ? "Minimize daily updates" : "Expand daily updates"}
-          >
-            <span className="hub-widget-toggle-icon" aria-hidden>
-              {hubDailyExpanded ? "−" : "+"}
-            </span>
-          </button>
+          {canCollapse ? (
+            <button
+              type="button"
+              className="hub-widget-toggle hub-daily-card-toggle"
+              onClick={onHubDailyExpandedToggle}
+              aria-expanded={hubDailyExpanded}
+              aria-controls="hub-daily-collapsible"
+              title={hubDailyExpanded ? "Minimize daily updates" : "Expand daily updates"}
+            >
+              <span className="hub-widget-toggle-icon" aria-hidden>
+                {hubDailyExpanded ? "−" : "+"}
+              </span>
+            </button>
+          ) : null}
         </div>
       </header>
 
-      {!isTimeline ? weekStrip : null}
-
-      <div id="hub-daily-collapsible" className="hub-daily-card__collapsible" hidden={!hubDailyExpanded}>
+      <div
+        id="hub-daily-collapsible"
+        className="hub-daily-card__collapsible"
+        {...(canCollapse && !hubDailyExpanded ? { hidden: true } : {})}
+      >
         {selectedUpdatesUserId === currentProfile?.id ? (
-          <div className="updates-composer">
+          <div className={`updates-composer${canCollapse ? "" : " updates-composer--home-pinned"}`.trim()}>
             <textarea
               placeholder="Share an update..."
               value={timelineInput}
               onChange={(event) => onTimelineInputChange(event.target.value)}
-              rows={3}
+              rows={canCollapse ? 3 : 4}
             />
             <button type="button" onClick={() => void onPostUpdate()} disabled={isPostingUpdate || !timelineInput.trim()}>
               {isPostingUpdate ? "Updating..." : "Update"}
@@ -214,8 +163,8 @@ export function DailyUpdatesSection({
                       return (
                         <article key={update.id} className="timeline-item">
                           <div className="timeline-time">
-                            <span>{new Date(update.created_at).toLocaleDateString([], { month: "short", day: "numeric" })}</span>
-                            <span>{new Date(update.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                            <span>{new Date(userUpdateDisplayAtIso(update)).toLocaleDateString([], { month: "short", day: "numeric" })}</span>
+                            <span>{new Date(userUpdateDisplayAtIso(update)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                           </div>
                           <div className="timeline-axis" aria-hidden="true">
                             <span className="timeline-dot" />

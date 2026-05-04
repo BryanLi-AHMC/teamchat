@@ -7,6 +7,14 @@ import {
   updateCalendarEvent,
   type CalendarEventRow,
 } from "../lib/calendarEvents";
+import {
+  createMyUpdate,
+  deleteMyUpdate,
+  fetchUpdatesForUser,
+  updateMyUpdate,
+  userUpdateDisplayAtIso,
+  type UserUpdate,
+} from "../lib/updates";
 import { getLocalDateKey, getWeekDaysSunday } from "../utils/timelineDates";
 
 const START_HOUR = 6;
@@ -100,6 +108,70 @@ function eventLaneOffset(userId: string): number {
   return (h % 5) * 5;
 }
 
+/** Visual duration on the grid (not used for scheduling / conflicts). */
+const USER_UPDATE_SEGMENT_MS = 25 * 60 * 1000;
+
+function filterUpdatesInRange(updates: UserUpdate[], rangeStart: Date, rangeEnd: Date): UserUpdate[] {
+  const a = rangeStart.getTime();
+  const b = rangeEnd.getTime();
+  return updates.filter((u) => {
+    const t = new Date(userUpdateDisplayAtIso(u)).getTime();
+    return t >= a && t < b;
+  });
+}
+
+function userUpdateAsCalendarRow(update: UserUpdate): CalendarEventRow {
+  const s = new Date(userUpdateDisplayAtIso(update));
+  const e = new Date(s.getTime() + USER_UPDATE_SEGMENT_MS);
+  return {
+    id: update.id,
+    user_id: update.user_id,
+    title: "",
+    starts_at: s.toISOString(),
+    ends_at: e.toISOString(),
+    created_at: update.created_at,
+    updated_at: update.updated_at,
+  };
+}
+
+function clampUserUpdateToDay(update: UserUpdate, dayStart: Date, dayEnd: Date) {
+  return clampEventToDay(userUpdateAsCalendarRow(update), dayStart, dayEnd);
+}
+
+/** Greedy interval layers for overlapping update pills (cascade / staircase layout). */
+function assignUpdateOverlapLayers(updates: UserUpdate[]): Map<string, number> {
+  const startMs = (u: UserUpdate) => new Date(userUpdateDisplayAtIso(u)).getTime();
+  const sorted = [...updates].sort((a, b) => startMs(a) - startMs(b) || a.id.localeCompare(b.id));
+  const layerEndMs: number[] = [];
+  const idToLayer = new Map<string, number>();
+  for (const u of sorted) {
+    const s = startMs(u);
+    const e = s + USER_UPDATE_SEGMENT_MS;
+    let placedLayer = -1;
+    for (let i = 0; i < layerEndMs.length; i += 1) {
+      if (layerEndMs[i]! <= s) {
+        placedLayer = i;
+        layerEndMs[i] = e;
+        break;
+      }
+    }
+    if (placedLayer === -1) {
+      placedLayer = layerEndMs.length;
+      layerEndMs.push(e);
+    }
+    idToLayer.set(u.id, placedLayer);
+  }
+  return idToLayer;
+}
+
+function previewUpdateBody(body: string): string {
+  const line = body.trim().split(/\r?\n/)[0] ?? "";
+  if (line.length > 72) {
+    return `${line.slice(0, 69)}…`;
+  }
+  return line || "Daily update";
+}
+
 export type CollaboratorPickOption = { id: string; display_name: string };
 
 export type TimelineWeekCalendarProps = {
@@ -118,6 +190,8 @@ export type TimelineWeekCalendarProps = {
   readOnlyBanner?: string;
   /** When 2+ ids, toolbar can show everyone’s events overlapped on one week. */
   teamOverlayUserIds?: string[];
+  /** After user_updates create/edit/delete from this calendar, sync parent caches (e.g. Daily Updates rail). */
+  onUserUpdatesChanged?: () => void;
 };
 
 export function TimelineWeekCalendar({
@@ -129,6 +203,7 @@ export function TimelineWeekCalendar({
   onCalendarChanged,
   readOnlyBanner,
   teamOverlayUserIds,
+  onUserUpdatesChanged,
 }: TimelineWeekCalendarProps) {
   const canMutate = calendarUserId === viewerUserId;
   const showTeamOverlayToggle = (teamOverlayUserIds?.length ?? 0) > 1;
@@ -261,6 +336,33 @@ export function TimelineWeekCalendar({
     };
   }, [viewMode, stackIdsKey, rangeStart, rangeEnd, reloadToken, teamOverlayUserIds]);
 
+  const [weekUserUpdates, setWeekUserUpdates] = useState<UserUpdate[]>([]);
+
+  const loadWeekUserUpdates = useCallback(async () => {
+    try {
+      if (viewMode === "stack" && teamOverlayUserIds?.length) {
+        const merged: UserUpdate[] = [];
+        for (const uid of teamOverlayUserIds) {
+          const rows = await fetchUpdatesForUser(uid);
+          merged.push(...filterUpdatesInRange(rows, rangeStart, rangeEnd));
+        }
+        merged.sort(
+          (a, b) => new Date(userUpdateDisplayAtIso(a)).getTime() - new Date(userUpdateDisplayAtIso(b)).getTime()
+        );
+        setWeekUserUpdates(merged);
+      } else {
+        const rows = await fetchUpdatesForUser(calendarUserId);
+        setWeekUserUpdates(filterUpdatesInRange(rows, rangeStart, rangeEnd));
+      }
+    } catch {
+      setWeekUserUpdates([]);
+    }
+  }, [calendarUserId, rangeStart, rangeEnd, viewMode, stackIdsKey, teamOverlayUserIds, reloadToken]);
+
+  useEffect(() => {
+    void loadWeekUserUpdates();
+  }, [loadWeekUserUpdates]);
+
   const [modal, setModal] = useState<
     | null
     | {
@@ -273,10 +375,107 @@ export function TimelineWeekCalendar({
       }
   >(null);
 
+  const [updateSheet, setUpdateSheet] = useState<null | { mode: "create" } | { mode: "edit"; update: UserUpdate }>(null);
+  const [updateBody, setUpdateBody] = useState("");
+  const [updateDisplayLocal, setUpdateDisplayLocal] = useState("");
+  const [updateErr, setUpdateErr] = useState("");
+  const [updateSaving, setUpdateSaving] = useState(false);
+
+  const closeUpdateSheet = () => {
+    setUpdateSheet(null);
+    setUpdateErr("");
+    setUpdateBody("");
+    setUpdateDisplayLocal("");
+    setUpdateSaving(false);
+  };
+
+  const openUpdateCreate = () => {
+    if (!canMutate || !canCreateInGrid) {
+      return;
+    }
+    setModal(null);
+    setError("");
+    setSaveConflictBlocks(null);
+    setUpdateErr("");
+    setUpdateBody("");
+    setUpdateDisplayLocal(toDatetimeLocalValue(new Date()));
+    setUpdateSheet({ mode: "create" });
+  };
+
+  const openUpdateEdit = (u: UserUpdate) => {
+    const canEdit = u.user_id === viewerUserId && (canMutate || viewMode === "stack");
+    if (!canEdit) {
+      return;
+    }
+    setModal(null);
+    setError("");
+    setSaveConflictBlocks(null);
+    setUpdateErr("");
+    setUpdateBody(u.body);
+    setUpdateDisplayLocal(toDatetimeLocalValue(new Date(userUpdateDisplayAtIso(u))));
+    setUpdateSheet({ mode: "edit", update: u });
+  };
+
+  const handleSaveUpdateSheet = async () => {
+    if (!updateSheet) {
+      return;
+    }
+    const text = updateBody.trim();
+    if (!text) {
+      setUpdateErr("Write something first.");
+      return;
+    }
+    const at = new Date(updateDisplayLocal);
+    if (Number.isNaN(at.getTime())) {
+      setUpdateErr("Invalid date or time.");
+      return;
+    }
+    const displayAtIso = at.toISOString();
+    setUpdateSaving(true);
+    setUpdateErr("");
+    try {
+      if (updateSheet.mode === "create") {
+        await createMyUpdate(text, displayAtIso);
+      } else {
+        await updateMyUpdate(updateSheet.update.id, { body: text, display_at: displayAtIso });
+      }
+      closeUpdateSheet();
+      await loadWeekUserUpdates();
+      onUserUpdatesChanged?.();
+    } catch (e) {
+      setUpdateErr(e instanceof Error ? e.message : "Unable to save update.");
+    } finally {
+      setUpdateSaving(false);
+    }
+  };
+
+  const handleDeleteUpdateSheet = async () => {
+    if (!updateSheet || updateSheet.mode !== "edit") {
+      return;
+    }
+    const ok = window.confirm("Delete this daily update?");
+    if (!ok) {
+      return;
+    }
+    setUpdateSaving(true);
+    setUpdateErr("");
+    try {
+      await deleteMyUpdate(updateSheet.update.id);
+      closeUpdateSheet();
+      await loadWeekUserUpdates();
+      onUserUpdatesChanged?.();
+    } catch (e) {
+      setUpdateErr(e instanceof Error ? e.message : "Unable to delete.");
+    } finally {
+      setUpdateSaving(false);
+    }
+  };
+
   const openCreateAt = (day: Date, hour: number) => {
     if (!canCreateInGrid) {
       return;
     }
+    closeUpdateSheet();
     setError("");
     setSaveConflictBlocks(null);
     const start = new Date(day);
@@ -296,6 +495,7 @@ export function TimelineWeekCalendar({
     if (!canCreateInGrid) {
       return;
     }
+    closeUpdateSheet();
     setError("");
     setSaveConflictBlocks(null);
     let h0 = Math.min(hourStartFloat, hourEndFloat);
@@ -325,6 +525,7 @@ export function TimelineWeekCalendar({
     if (!canOpenEdit(ev)) {
       return;
     }
+    closeUpdateSheet();
     setError("");
     setSaveConflictBlocks(null);
     setModal({
@@ -341,7 +542,8 @@ export function TimelineWeekCalendar({
     if (!canCreateInGrid || e.button !== 0) {
       return;
     }
-    if ((e.target as HTMLElement).closest(".timeline-week-cal__event")) {
+    const t = e.target as HTMLElement;
+    if (t.closest(".timeline-week-cal__event") || t.closest(".timeline-week-cal__day-update")) {
       return;
     }
     const bodyEl = e.currentTarget;
@@ -511,6 +713,23 @@ export function TimelineWeekCalendar({
   const displayEvents = viewMode === "stack" ? stackEvents : events;
   const gridLoading = loading || (viewMode === "stack" && stackLoading);
 
+  const updatesByDayKey = useMemo(() => {
+    const m = new Map<string, UserUpdate[]>();
+    for (const d of weekDays) {
+      const dayStart = startOfLocalDay(d);
+      const dayEnd = addDays(dayStart, 1);
+      const key = getLocalDateKey(d);
+      const list: UserUpdate[] = [];
+      for (const u of weekUserUpdates) {
+        if (clampUserUpdateToDay(u, dayStart, dayEnd)) {
+          list.push(u);
+        }
+      }
+      m.set(key, list);
+    }
+    return m;
+  }, [weekDays, weekUserUpdates]);
+
   return (
     <div className="timeline-week-cal">
       <div className="timeline-week-cal__toolbar">
@@ -545,30 +764,36 @@ export function TimelineWeekCalendar({
           </div>
         ) : null}
         {canMutate && canCreateInGrid ? (
-          <button
-            type="button"
-            className="timeline-week-cal__toolbar-btn timeline-week-cal__toolbar-btn--accent"
-            onClick={() => {
-              setSaveConflictBlocks(null);
-              const now = new Date();
-              const start = new Date(now);
-              start.setMinutes(0, 0, 0);
-              if (start < new Date()) {
-                start.setHours(start.getHours() + 1);
-              }
-              const end = new Date(start);
-              end.setHours(end.getHours() + 1);
-              setModal({
-                mode: "create",
-                title: "",
-                startsLocal: toDatetimeLocalValue(start),
-                endsLocal: toDatetimeLocalValue(end),
-                collaboratorIds: [],
-              });
-            }}
-          >
-            + Add event
-          </button>
+          <div className="timeline-week-cal__toolbar-actions">
+            <button
+              type="button"
+              className="timeline-week-cal__toolbar-btn timeline-week-cal__toolbar-btn--accent"
+              onClick={() => {
+                closeUpdateSheet();
+                setSaveConflictBlocks(null);
+                const now = new Date();
+                const start = new Date(now);
+                start.setMinutes(0, 0, 0);
+                if (start < new Date()) {
+                  start.setHours(start.getHours() + 1);
+                }
+                const end = new Date(start);
+                end.setHours(end.getHours() + 1);
+                setModal({
+                  mode: "create",
+                  title: "",
+                  startsLocal: toDatetimeLocalValue(start),
+                  endsLocal: toDatetimeLocalValue(end),
+                  collaboratorIds: [],
+                });
+              }}
+            >
+              + Add event
+            </button>
+            <button type="button" className="timeline-week-cal__toolbar-btn timeline-week-cal__toolbar-btn--update" onClick={openUpdateCreate}>
+              Add update
+            </button>
+          </div>
         ) : null}
       </div>
 
@@ -580,6 +805,10 @@ export function TimelineWeekCalendar({
               {uid === viewerUserId ? "You" : teammateNameById[uid] ?? "Teammate"}
             </span>
           ))}
+          <span className="timeline-week-cal__legend-chip">
+            <span className="timeline-week-cal__legend-swatch timeline-week-cal__legend-swatch--update" />
+            Daily update
+          </span>
         </div>
       ) : null}
 
@@ -620,6 +849,8 @@ export function TimelineWeekCalendar({
             const dayStart = startOfLocalDay(day);
             const dayEnd = addDays(dayStart, 1);
             const key = getLocalDateKey(day);
+            const dayUpdates = updatesByDayKey.get(key) ?? [];
+            const updateLayers = assignUpdateOverlapLayers(dayUpdates);
 
             return (
               <div key={key} className="timeline-week-cal__day-col">
@@ -705,6 +936,86 @@ export function TimelineWeekCalendar({
                         className={`timeline-week-cal__event timeline-week-cal__event--readonly${viewMode === "stack" ? " timeline-week-cal__event--stack" : ""}`.trim()}
                         style={stackStyle}
                         title={ev.title}
+                      >
+                        {inner}
+                      </div>
+                    );
+                  })}
+                  {dayUpdates.map((u) => {
+                    const seg = clampUserUpdateToDay(u, dayStart, dayEnd);
+                    if (!seg) {
+                      return null;
+                    }
+                    const { top, height } = segmentStyle(seg.start, seg.end, dayStart);
+                    const layer = updateLayers.get(u.id) ?? 0;
+                    const cascadeX = layer * 12;
+                    const cascadeY = layer * 10;
+                    const ownerShort =
+                      viewMode === "stack"
+                        ? u.user_id === viewerUserId
+                          ? "You"
+                          : teammateNameById[u.user_id] ?? "Teammate"
+                        : null;
+                    const baseLeft = viewMode === "stack" ? 3 + eventLaneOffset(u.user_id) : 3;
+                    const stackStyle: CSSProperties =
+                      viewMode === "stack"
+                        ? {
+                            top: top + cascadeY,
+                            height,
+                            left: baseLeft + cascadeX,
+                            right: Math.max(4, 8 - cascadeX * 0.25),
+                            width: "auto",
+                            borderLeftWidth: 3,
+                            borderLeftStyle: "solid",
+                            borderLeftColor: "#0f766e",
+                            zIndex: 5 + layer,
+                            boxShadow: layer > 0 ? "0 2px 6px rgba(0,0,0,0.14)" : undefined,
+                          }
+                        : {
+                            top: top + cascadeY,
+                            height,
+                            left: baseLeft + cascadeX,
+                            right: Math.max(3, 3 - cascadeX * 0.15),
+                            zIndex: 5 + layer,
+                            boxShadow: layer > 0 ? "0 2px 6px rgba(0,0,0,0.14)" : undefined,
+                          };
+                    const label = previewUpdateBody(u.body);
+                    const interactive = u.user_id === viewerUserId && (canMutate || viewMode === "stack");
+                    const layerClass = layer > 0 ? " timeline-week-cal__day-update--cascade" : "";
+                    const inner = (
+                      <>
+                        <span className="timeline-week-cal__day-update-time">
+                          {new Date(userUpdateDisplayAtIso(u)).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                        </span>
+                        <span className="timeline-week-cal__day-update-body">
+                          {ownerShort ? <span className="timeline-week-cal__day-update-owner">{ownerShort}: </span> : null}
+                          {label}
+                        </span>
+                      </>
+                    );
+                    return interactive ? (
+                      <button
+                        key={`upd-${u.id}-${key}`}
+                        type="button"
+                        className={`timeline-week-cal__day-update${viewMode === "stack" ? " timeline-week-cal__day-update--stack" : ""}${layerClass}`.trim()}
+                        style={stackStyle}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openUpdateEdit(u);
+                        }}
+                        title={u.body}
+                      >
+                        {inner}
+                      </button>
+                    ) : (
+                      <div
+                        key={`upd-${u.id}-${key}`}
+                        className={`timeline-week-cal__day-update timeline-week-cal__day-update--readonly${
+                          viewMode === "stack" ? " timeline-week-cal__day-update--stack" : ""
+                        }${layerClass}`.trim()}
+                        style={stackStyle}
+                        title={u.body}
                       >
                         {inner}
                       </div>
@@ -838,6 +1149,64 @@ export function TimelineWeekCalendar({
                 </button>
                 <button type="button" className="timeline-week-cal-modal__save" onClick={() => void handleSaveModal()} disabled={saving}>
                   {saving ? "Saving…" : "Save"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {updateSheet ? (
+        <div className="timeline-week-cal-modal-root" role="dialog" aria-modal="true" aria-labelledby="twc-update-modal-title">
+          <button type="button" className="timeline-week-cal-modal-backdrop" aria-label="Close" onClick={closeUpdateSheet} />
+          <div className="timeline-week-cal-modal" onClick={(e) => e.stopPropagation()}>
+            <h2 id="twc-update-modal-title" className="timeline-week-cal-modal__title">
+              {updateSheet.mode === "create" ? "New daily update" : "Edit daily update"}
+            </h2>
+            {updateErr ? <p className="timeline-week-cal-modal__error">{updateErr}</p> : null}
+            <p className="timeline-week-cal-modal__fieldset-hint">
+              Shown on your calendar in teal (overlapping updates stagger like cards). Does not block scheduling.
+            </p>
+            <label className="timeline-week-cal-modal__label">
+              Time on calendar
+              <input
+                type="datetime-local"
+                className="timeline-week-cal-modal__input"
+                value={updateDisplayLocal}
+                onChange={(e) => {
+                  setUpdateErr("");
+                  setUpdateDisplayLocal(e.target.value);
+                }}
+              />
+            </label>
+            <label className="timeline-week-cal-modal__label">
+              Update
+              <textarea
+                className="timeline-week-cal-modal__textarea"
+                rows={5}
+                value={updateBody}
+                onChange={(e) => {
+                  setUpdateErr("");
+                  setUpdateBody(e.target.value);
+                }}
+                placeholder="What did you work on today?"
+                autoFocus
+              />
+            </label>
+            <div className="timeline-week-cal-modal__actions">
+              {updateSheet.mode === "edit" ? (
+                <button type="button" className="timeline-week-cal-modal__delete" onClick={() => void handleDeleteUpdateSheet()} disabled={updateSaving}>
+                  Delete
+                </button>
+              ) : (
+                <span />
+              )}
+              <div className="timeline-week-cal-modal__actions-right">
+                <button type="button" className="timeline-week-cal-modal__cancel" onClick={closeUpdateSheet} disabled={updateSaving}>
+                  Cancel
+                </button>
+                <button type="button" className="timeline-week-cal-modal__save" onClick={() => void handleSaveUpdateSheet()} disabled={updateSaving}>
+                  {updateSaving ? "Saving…" : updateSheet.mode === "create" ? "Post" : "Save"}
                 </button>
               </div>
             </div>

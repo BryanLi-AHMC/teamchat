@@ -3,6 +3,11 @@ import { io, type Socket } from "socket.io-client";
 import { API_BASE } from "./api";
 
 type ServerToClientEvents = {
+  "message:read": (payload: {
+    conversationId: string;
+    userId: string;
+    lastReadMessageId: string;
+  }) => void;
   "message:new": (payload: {
     id: string;
     conversationId: string;
@@ -30,6 +35,7 @@ type ServerToClientEvents = {
 type ClientToServerEvents = {
   "conversation:join": (payload: { conversationId: string }) => void;
   "conversation:leave": (payload: { conversationId: string }) => void;
+  "message:read": (payload: { conversationId: string; lastReadMessageId: string }) => void;
   "message:send": (payload: {
     conversationId: string;
     body: string;

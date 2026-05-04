@@ -5,6 +5,7 @@ import {
   assertConversationMembership,
   insertMessage,
   toConversationRoom,
+  updateMemberLastRead,
   validateMessageInput,
 } from "./lib/messages";
 import { resolveCurrentProfile } from "./lib/currentProfile";
@@ -25,6 +26,11 @@ type SendPayload = {
     mimeType: string;
     size: number;
   };
+};
+
+type ReadPayload = {
+  conversationId?: string;
+  lastReadMessageId?: string;
 };
 
 type SocketCurrentProfile = {
@@ -183,6 +189,32 @@ export function attachSocketServer(
       } catch (error) {
         socket.emit("message:error", {
           message: error instanceof Error ? error.message : "Unable to send message.",
+        });
+      }
+    });
+
+    socket.on("message:read", async (payload: ReadPayload) => {
+      try {
+        const currentProfile = socket.data.currentProfile as SocketCurrentProfile | undefined;
+        const conversationId = payload?.conversationId;
+        const lastReadMessageId = payload?.lastReadMessageId;
+        if (!currentProfile?.id || !conversationId || !lastReadMessageId) {
+          throw new Error("conversationId and lastReadMessageId are required.");
+        }
+
+        await assertConversationMembership(supabaseAdmin!, currentProfile.id, conversationId);
+        await updateMemberLastRead(supabaseAdmin!, currentProfile.id, conversationId, lastReadMessageId);
+
+        const room = toConversationRoom(conversationId);
+        await socket.join(room);
+        io.to(room).emit("message:read", {
+          conversationId,
+          userId: currentProfile.id,
+          lastReadMessageId,
+        });
+      } catch (error) {
+        socket.emit("message:error", {
+          message: error instanceof Error ? error.message : "Unable to update read receipt.",
         });
       }
     });

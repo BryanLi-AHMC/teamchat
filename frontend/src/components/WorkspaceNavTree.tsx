@@ -16,7 +16,6 @@ export type WorkspaceNavTreeProps = {
   activeConversationId: string | null | undefined;
   onOpenDm: (userId: string) => void;
   onOpenGroup: (conversation: ConversationSummary) => void;
-  onViewUpdatesProfile: (userId: string) => void;
   onNewGroup: () => void;
   formatUnreadCount: (count: number) => string;
   renderPresencePetAvatar: (
@@ -38,7 +37,6 @@ export function WorkspaceNavTree({
   activeConversationId,
   onOpenDm,
   onOpenGroup,
-  onViewUpdatesProfile,
   onNewGroup,
   formatUnreadCount,
   renderPresencePetAvatar,
@@ -74,8 +72,12 @@ export function WorkspaceNavTree({
                     type="button"
                     className="workspace-nav-tree__main"
                     onClick={() => {
-                      setMessagesOpen(true);
-                      onSelectTab("messages");
+                      if (isActive && messagesOpen) {
+                        setMessagesOpen(false);
+                      } else {
+                        setMessagesOpen(true);
+                        onSelectTab("messages");
+                      }
                     }}
                     aria-current={isActive ? "page" : undefined}
                   >
@@ -119,31 +121,6 @@ export function WorkspaceNavTree({
                             {unreadCount > 0 ? (
                               <span className="workspace-nav-tree__mini-badge">{formatUnreadCount(unreadCount)}</span>
                             ) : null}
-                          </button>
-                          <button
-                            type="button"
-                            className="workspace-nav-tree__nested-dm-updates"
-                            onClick={() => onViewUpdatesProfile(user.id)}
-                            aria-label={`${user.display_name}: daily updates`}
-                            title="Daily updates"
-                          >
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              width="16"
-                              height="16"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              aria-hidden
-                            >
-                              <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                              <line x1="16" y1="2" x2="16" y2="6" />
-                              <line x1="8" y1="2" x2="8" y2="6" />
-                              <line x1="3" y1="10" x2="21" y2="10" />
-                            </svg>
                           </button>
                         </li>
                       );
