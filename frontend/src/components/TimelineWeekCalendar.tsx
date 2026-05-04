@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   createCalendarEvent,
   deleteCalendarEvent,
   fetchCalendarEventsInRange,
+  findBusyConflictsForProposedSlot,
   updateCalendarEvent,
   type CalendarEventRow,
 } from "../lib/calendarEvents";
@@ -60,16 +61,107 @@ function segmentStyle(segStart: Date, segEnd: Date, dayStart: Date): { top: numb
   return { top, height: Math.max(height, 18) };
 }
 
+const DRAG_CLICK_THRESHOLD_PX = 8;
+const DRAG_MIN_DURATION_HOURS = 15 / 60;
+
+function clampDragY(y: number): number {
+  return Math.max(0, Math.min(GRID_BODY_HEIGHT, y));
+}
+
+function yToHourFloat(y: number): number {
+  return START_HOUR + y / PX_PER_HOUR;
+}
+
+function clampHourFloat(h: number): number {
+  return Math.max(START_HOUR, Math.min(END_HOUR_EXCLUSIVE, h));
+}
+
+/** Map a fractional hour on the visible grid (6–22) to an absolute local `Date` on `dayStart`’s calendar day. */
+function hourFloatToDateOnDay(dayStart: Date, hourFloat: number): Date {
+  const origin = new Date(dayStart);
+  origin.setHours(START_HOUR, 0, 0, 0);
+  return new Date(origin.getTime() + (hourFloat - START_HOUR) * 3600000);
+}
+
+function colorForUserId(userId: string): string {
+  let h = 0;
+  for (let i = 0; i < userId.length; i += 1) {
+    h = (h * 31 + userId.charCodeAt(i)) >>> 0;
+  }
+  const hue = h % 360;
+  return `hsl(${hue} 58% 40%)`;
+}
+
+function eventLaneOffset(userId: string): number {
+  let h = 0;
+  for (let i = 0; i < userId.length; i += 1) {
+    h = (h * 17 + userId.charCodeAt(i)) >>> 0;
+  }
+  return (h % 5) * 5;
+}
+
+export type CollaboratorPickOption = { id: string; display_name: string };
+
 export type TimelineWeekCalendarProps = {
-  userId: string;
+  /** Whose week grid to load (any active teammate once RLS allows team read). */
+  calendarUserId: string;
+  /** Signed-in user; controls edit vs read-only. */
+  viewerUserId: string;
+  /** Labels for collaborator chips on events. */
+  teammateNameById?: Record<string, string>;
+  /** Teammates available when adding collaborators to an event on your own calendar. */
+  collaboratorPickOptions?: CollaboratorPickOption[];
+  /** Increment from parent after external creates (e.g. rail collab modal) to reload events. */
+  reloadToken?: number;
+  onCalendarChanged?: () => void;
+  /** When viewing someone else’s week, show this line above the grid (read-only). */
+  readOnlyBanner?: string;
+  /** When 2+ ids, toolbar can show everyone’s events overlapped on one week. */
+  teamOverlayUserIds?: string[];
 };
 
-export function TimelineWeekCalendar({ userId }: TimelineWeekCalendarProps) {
+export function TimelineWeekCalendar({
+  calendarUserId,
+  viewerUserId,
+  teammateNameById = {},
+  collaboratorPickOptions = [],
+  reloadToken = 0,
+  onCalendarChanged,
+  readOnlyBanner,
+  teamOverlayUserIds,
+}: TimelineWeekCalendarProps) {
+  const canMutate = calendarUserId === viewerUserId;
+  const showTeamOverlayToggle = (teamOverlayUserIds?.length ?? 0) > 1;
+  const [viewMode, setViewMode] = useState<"single" | "stack">("single");
+  const [stackEvents, setStackEvents] = useState<CalendarEventRow[]>([]);
+  const [stackLoading, setStackLoading] = useState(false);
+  const canCreateInGrid = canMutate && viewMode === "single";
+  const skipConflictCheckOnce = useRef(false);
+  const [saveConflictBlocks, setSaveConflictBlocks] = useState<
+    { userId: string; displayName: string; conflicts: CalendarEventRow[] }[] | null
+  >(null);
+
+  const collaboratorSubtitle = (ids: string[] | undefined) => {
+    if (!ids?.length) return "";
+    const names = ids.map((id) => teammateNameById[id]).filter(Boolean);
+    if (names.length === 0) return `${ids.length} teammate${ids.length > 1 ? "s" : ""}`;
+    return `w/ ${names.join(", ")}`;
+  };
   const [weekOffset, setWeekOffset] = useState(0);
   const [events, setEvents] = useState<CalendarEventRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [dragPreview, setDragPreview] = useState<{ colKey: string; y0: number; y1: number } | null>(null);
+  const dragSessionRef = useRef<{
+    pointerId: number;
+    dayStart: Date;
+    colKey: string;
+    y0: number;
+    y1: number;
+    bodyEl: HTMLDivElement;
+  } | null>(null);
+  const dragListenersCleanupRef = useRef<(() => void) | null>(null);
 
   const weekDays = useMemo(() => getWeekDaysSunday(weekOffset), [weekOffset]);
   const rangeStart = useMemo(() => startOfLocalDay(weekDays[0]!), [weekDays]);
@@ -89,11 +181,28 @@ export function TimelineWeekCalendar({ userId }: TimelineWeekCalendarProps) {
 
   const todayKey = getLocalDateKey(new Date());
 
+  useEffect(() => {
+    return () => {
+      dragListenersCleanupRef.current?.();
+      dragListenersCleanupRef.current = null;
+      const s = dragSessionRef.current;
+      if (s) {
+        try {
+          s.bodyEl.releasePointerCapture(s.pointerId);
+        } catch {
+          /* ignore */
+        }
+      }
+      dragSessionRef.current = null;
+      setDragPreview(null);
+    };
+  }, [weekOffset, calendarUserId, viewMode]);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const rows = await fetchCalendarEventsInRange(userId, rangeStart.toISOString(), rangeEnd.toISOString());
+      const rows = await fetchCalendarEventsInRange(calendarUserId, rangeStart.toISOString(), rangeEnd.toISOString());
       setEvents(rows);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to load calendar.");
@@ -101,11 +210,56 @@ export function TimelineWeekCalendar({ userId }: TimelineWeekCalendarProps) {
     } finally {
       setLoading(false);
     }
-  }, [userId, rangeStart, rangeEnd]);
+  }, [calendarUserId, rangeStart, rangeEnd]);
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, reloadToken]);
+
+  const stackIdsKey = (teamOverlayUserIds ?? []).join(",");
+
+  useEffect(() => {
+    if (!showTeamOverlayToggle && viewMode === "stack") {
+      setViewMode("single");
+    }
+  }, [showTeamOverlayToggle, viewMode]);
+
+  useEffect(() => {
+    if (viewMode !== "stack" || !teamOverlayUserIds?.length) {
+      setStackEvents([]);
+      setStackLoading(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setStackLoading(true);
+      try {
+        const merged: CalendarEventRow[] = [];
+        for (const uid of teamOverlayUserIds) {
+          const rows = await fetchCalendarEventsInRange(uid, rangeStart.toISOString(), rangeEnd.toISOString());
+          if (cancelled) {
+            return;
+          }
+          merged.push(...rows);
+        }
+        if (!cancelled) {
+          merged.sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+          setStackEvents(merged);
+        }
+      } catch {
+        if (!cancelled) {
+          setStackEvents([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setStackLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [viewMode, stackIdsKey, rangeStart, rangeEnd, reloadToken, teamOverlayUserIds]);
 
   const [modal, setModal] = useState<
     | null
@@ -115,11 +269,16 @@ export function TimelineWeekCalendar({ userId }: TimelineWeekCalendarProps) {
         title: string;
         startsLocal: string;
         endsLocal: string;
+        collaboratorIds: string[];
       }
   >(null);
 
   const openCreateAt = (day: Date, hour: number) => {
+    if (!canCreateInGrid) {
+      return;
+    }
     setError("");
+    setSaveConflictBlocks(null);
     const start = new Date(day);
     start.setHours(hour, 0, 0, 0);
     const end = new Date(start);
@@ -129,29 +288,130 @@ export function TimelineWeekCalendar({ userId }: TimelineWeekCalendarProps) {
       title: "",
       startsLocal: toDatetimeLocalValue(start),
       endsLocal: toDatetimeLocalValue(end),
+      collaboratorIds: [],
     });
   };
 
-  const openEdit = (ev: CalendarEventRow) => {
+  const openCreateFromDragRange = (dayStart: Date, hourStartFloat: number, hourEndFloat: number) => {
+    if (!canCreateInGrid) {
+      return;
+    }
     setError("");
+    setSaveConflictBlocks(null);
+    let h0 = Math.min(hourStartFloat, hourEndFloat);
+    let h1 = Math.max(hourStartFloat, hourEndFloat);
+    h0 = clampHourFloat(h0);
+    h1 = clampHourFloat(h1);
+    if (h1 - h0 < DRAG_MIN_DURATION_HOURS) {
+      h1 = Math.min(END_HOUR_EXCLUSIVE, h0 + DRAG_MIN_DURATION_HOURS);
+    }
+    const start = hourFloatToDateOnDay(dayStart, h0);
+    let end = hourFloatToDateOnDay(dayStart, h1);
+    if (end <= start) {
+      end = new Date(start.getTime() + DRAG_MIN_DURATION_HOURS * 3600000);
+    }
+    setModal({
+      mode: "create",
+      title: "",
+      startsLocal: toDatetimeLocalValue(start),
+      endsLocal: toDatetimeLocalValue(end),
+      collaboratorIds: [],
+    });
+  };
+
+  const canOpenEdit = (ev: CalendarEventRow) => ev.user_id === viewerUserId && (canMutate || viewMode === "stack");
+
+  const openEdit = (ev: CalendarEventRow) => {
+    if (!canOpenEdit(ev)) {
+      return;
+    }
+    setError("");
+    setSaveConflictBlocks(null);
     setModal({
       mode: "edit",
       id: ev.id,
       title: ev.title,
       startsLocal: toDatetimeLocalValue(new Date(ev.starts_at)),
       endsLocal: toDatetimeLocalValue(new Date(ev.ends_at)),
+      collaboratorIds: [...(ev.collaborator_user_ids ?? [])],
     });
   };
 
-  const handleSlotClick = (day: Date, clientY: number, rectTop: number) => {
-    const y = clientY - rectTop;
-    const hourFloat = START_HOUR + y / PX_PER_HOUR;
-    const hour = Math.floor(Math.max(START_HOUR, Math.min(END_HOUR_EXCLUSIVE - 1, hourFloat)));
-    openCreateAt(day, hour);
+  const beginGridDragCreate = (dayStart: Date, colKey: string, e: React.PointerEvent<HTMLDivElement>) => {
+    if (!canCreateInGrid || e.button !== 0) {
+      return;
+    }
+    if ((e.target as HTMLElement).closest(".timeline-week-cal__event")) {
+      return;
+    }
+    const bodyEl = e.currentTarget;
+    const rect = bodyEl.getBoundingClientRect();
+    const y0 = clampDragY(e.clientY - rect.top);
+    const pointerId = e.pointerId;
+    dragSessionRef.current = { pointerId, dayStart, colKey, y0, y1: y0, bodyEl };
+    setDragPreview({ colKey, y0, y1: y0 });
+    try {
+      bodyEl.setPointerCapture(pointerId);
+    } catch {
+      /* ignore */
+    }
+
+    const move = (pe: PointerEvent) => {
+      const s = dragSessionRef.current;
+      if (!s || pe.pointerId !== s.pointerId) {
+        return;
+      }
+      const r = s.bodyEl.getBoundingClientRect();
+      const y1 = clampDragY(pe.clientY - r.top);
+      s.y1 = y1;
+      setDragPreview({ colKey: s.colKey, y0: s.y0, y1 });
+    };
+
+    const detach = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+      dragListenersCleanupRef.current = null;
+    };
+
+    const finish = (pe: PointerEvent) => {
+      const s = dragSessionRef.current;
+      if (!s || pe.pointerId !== s.pointerId) {
+        return;
+      }
+      detach();
+      try {
+        s.bodyEl.releasePointerCapture(pe.pointerId);
+      } catch {
+        /* ignore */
+      }
+      const r = s.bodyEl.getBoundingClientRect();
+      const yRelease = clampDragY(pe.clientY - r.top);
+      const y0 = s.y0;
+      const dayStart = s.dayStart;
+      dragSessionRef.current = null;
+      setDragPreview(null);
+
+      if (Math.abs(yRelease - y0) < DRAG_CLICK_THRESHOLD_PX) {
+        const hourFloat = yToHourFloat((y0 + yRelease) / 2);
+        const hour = Math.floor(Math.max(START_HOUR, Math.min(END_HOUR_EXCLUSIVE - 1, hourFloat)));
+        openCreateAt(dayStart, hour);
+        return;
+      }
+      const h0 = yToHourFloat(Math.min(y0, yRelease));
+      const h1 = yToHourFloat(Math.max(y0, yRelease));
+      openCreateFromDragRange(dayStart, h0, h1);
+    };
+
+    dragListenersCleanupRef.current = detach;
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", finish);
   };
 
   const closeModal = () => {
     setError("");
+    setSaveConflictBlocks(null);
     setModal(null);
   };
 
@@ -169,15 +429,34 @@ export function TimelineWeekCalendar({ userId }: TimelineWeekCalendarProps) {
       setError("End time must be after start time.");
       return;
     }
+    if (!skipConflictCheckOnce.current) {
+      const participantIds = [viewerUserId, ...modal.collaboratorIds];
+      const ignoreId = modal.mode === "edit" ? modal.id : undefined;
+      const conflicts = await findBusyConflictsForProposedSlot(
+        participantIds,
+        teammateNameById,
+        start,
+        end,
+        ignoreId
+      );
+      if (conflicts.length > 0) {
+        setSaveConflictBlocks(conflicts);
+        return;
+      }
+    } else {
+      skipConflictCheckOnce.current = false;
+    }
     setSaving(true);
     setError("");
+    setSaveConflictBlocks(null);
     try {
       if (modal.mode === "create") {
         const created = await createCalendarEvent({
-          userId,
+          userId: viewerUserId,
           title: modal.title,
           startsAt: start,
           endsAt: end,
+          collaboratorUserIds: modal.collaboratorIds,
         });
         setEvents((prev) => [...prev, created].sort((a, b) => a.starts_at.localeCompare(b.starts_at)));
       } else if (modal.id) {
@@ -185,12 +464,15 @@ export function TimelineWeekCalendar({ userId }: TimelineWeekCalendarProps) {
           title: modal.title,
           startsAt: start,
           endsAt: end,
+          collaboratorUserIds: modal.collaboratorIds,
         });
         setEvents((prev) => prev.map((r) => (r.id === updated.id ? updated : r)).sort((a, b) => a.starts_at.localeCompare(b.starts_at)));
       }
       closeModal();
+      onCalendarChanged?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to save event.");
+      setSaveConflictBlocks(null);
     } finally {
       setSaving(false);
     }
@@ -210,6 +492,7 @@ export function TimelineWeekCalendar({ userId }: TimelineWeekCalendarProps) {
       await deleteCalendarEvent(modal.id);
       setEvents((prev) => prev.filter((r) => r.id !== modal.id));
       closeModal();
+      onCalendarChanged?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to delete.");
     } finally {
@@ -224,6 +507,9 @@ export function TimelineWeekCalendar({ userId }: TimelineWeekCalendarProps) {
     }
     return out;
   }, []);
+
+  const displayEvents = viewMode === "stack" ? stackEvents : events;
+  const gridLoading = loading || (viewMode === "stack" && stackLoading);
 
   return (
     <div className="timeline-week-cal">
@@ -240,32 +526,71 @@ export function TimelineWeekCalendar({ userId }: TimelineWeekCalendarProps) {
           </button>
         </div>
         <span className="timeline-week-cal__range">{rangeLabel}</span>
-        <button
-          type="button"
-          className="timeline-week-cal__toolbar-btn timeline-week-cal__toolbar-btn--accent"
-          onClick={() => {
-            const now = new Date();
-            const start = new Date(now);
-            start.setMinutes(0, 0, 0);
-            if (start < new Date()) {
-              start.setHours(start.getHours() + 1);
-            }
-            const end = new Date(start);
-            end.setHours(end.getHours() + 1);
-            setModal({
-              mode: "create",
-              title: "",
-              startsLocal: toDatetimeLocalValue(start),
-              endsLocal: toDatetimeLocalValue(end),
-            });
-          }}
-        >
-          + Add event
-        </button>
+        {showTeamOverlayToggle ? (
+          <div className="timeline-week-cal__view-toggle" role="group" aria-label="Week view mode">
+            <button
+              type="button"
+              className={`timeline-week-cal__view-toggle-btn${viewMode === "single" ? " timeline-week-cal__view-toggle-btn--active" : ""}`}
+              onClick={() => setViewMode("single")}
+            >
+              One person
+            </button>
+            <button
+              type="button"
+              className={`timeline-week-cal__view-toggle-btn${viewMode === "stack" ? " timeline-week-cal__view-toggle-btn--active" : ""}`}
+              onClick={() => setViewMode("stack")}
+            >
+              Team overlap
+            </button>
+          </div>
+        ) : null}
+        {canMutate && canCreateInGrid ? (
+          <button
+            type="button"
+            className="timeline-week-cal__toolbar-btn timeline-week-cal__toolbar-btn--accent"
+            onClick={() => {
+              setSaveConflictBlocks(null);
+              const now = new Date();
+              const start = new Date(now);
+              start.setMinutes(0, 0, 0);
+              if (start < new Date()) {
+                start.setHours(start.getHours() + 1);
+              }
+              const end = new Date(start);
+              end.setHours(end.getHours() + 1);
+              setModal({
+                mode: "create",
+                title: "",
+                startsLocal: toDatetimeLocalValue(start),
+                endsLocal: toDatetimeLocalValue(end),
+                collaboratorIds: [],
+              });
+            }}
+          >
+            + Add event
+          </button>
+        ) : null}
       </div>
 
+      {viewMode === "stack" && showTeamOverlayToggle ? (
+        <div className="timeline-week-cal__legend" aria-hidden={false}>
+          {(teamOverlayUserIds ?? []).map((uid) => (
+            <span key={uid} className="timeline-week-cal__legend-chip">
+              <span className="timeline-week-cal__legend-swatch" style={{ background: colorForUserId(uid) }} />
+              {uid === viewerUserId ? "You" : teammateNameById[uid] ?? "Teammate"}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      {readOnlyBanner ? <p className="timeline-week-cal__banner timeline-week-cal__banner--muted">{readOnlyBanner}</p> : null}
+      {viewMode === "stack" && canMutate ? (
+        <p className="timeline-week-cal__banner timeline-week-cal__banner--muted">
+          Team overlap shows everyone on one week. Switch to &quot;One person&quot; to add events or click / drag empty slots.
+        </p>
+      ) : null}
       {error && !modal ? <p className="timeline-week-cal__banner timeline-week-cal__banner--error">{error}</p> : null}
-      {loading ? <p className="timeline-week-cal__banner">Loading calendar…</p> : null}
+      {gridLoading ? <p className="timeline-week-cal__banner">Loading calendar…</p> : null}
 
       <div className="timeline-week-cal__scroll">
         <div className="timeline-week-cal__grid" style={{ ["--twc-grid-height" as string]: `${GRID_BODY_HEIGHT}px` }}>
@@ -299,42 +624,90 @@ export function TimelineWeekCalendar({ userId }: TimelineWeekCalendarProps) {
             return (
               <div key={key} className="timeline-week-cal__day-col">
                 <div
-                  className="timeline-week-cal__day-body"
+                  className={`timeline-week-cal__day-body${canCreateInGrid ? "" : " timeline-week-cal__day-body--readonly"}${
+                    dragPreview?.colKey === key ? " timeline-week-cal__day-body--dragging" : ""
+                  }`.trim()}
                   style={{ height: GRID_BODY_HEIGHT }}
-                  onClick={(e) => {
-                    if ((e.target as HTMLElement).closest(".timeline-week-cal__event")) {
-                      return;
-                    }
-                    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-                    handleSlotClick(dayStart, e.clientY, rect.top);
-                  }}
+                  onPointerDown={canCreateInGrid ? (e) => beginGridDragCreate(dayStart, key, e) : undefined}
                 >
                   {hourLabels.map((h) => (
                     <div key={h} className="timeline-week-cal__hour-line" style={{ height: PX_PER_HOUR }} />
                   ))}
-                  {events.map((ev) => {
+                  {dragPreview && dragPreview.colKey === key ? (
+                    <div
+                      className="timeline-week-cal__drag-sel"
+                      aria-hidden
+                      style={{
+                        top: Math.min(dragPreview.y0, dragPreview.y1),
+                        height: Math.max(4, Math.abs(dragPreview.y1 - dragPreview.y0)),
+                      }}
+                    />
+                  ) : null}
+                  {displayEvents.map((ev) => {
                     const seg = clampEventToDay(ev, dayStart, dayEnd);
                     if (!seg) {
                       return null;
                     }
                     const { top, height } = segmentStyle(seg.start, seg.end, dayStart);
-                    return (
+                    const sub = collaboratorSubtitle(ev.collaborator_user_ids);
+                    const ownerShort =
+                      viewMode === "stack"
+                        ? ev.user_id === viewerUserId
+                          ? "You"
+                          : teammateNameById[ev.user_id] ?? "Teammate"
+                        : null;
+                    const stackStyle: CSSProperties =
+                      viewMode === "stack"
+                        ? {
+                            top,
+                            height,
+                            left: 3 + eventLaneOffset(ev.user_id),
+                            right: 8,
+                            width: "auto",
+                            borderLeftWidth: 3,
+                            borderLeftStyle: "solid",
+                            borderLeftColor: colorForUserId(ev.user_id),
+                          }
+                        : { top, height };
+                    const inner = (
+                      <>
+                        <span className="timeline-week-cal__event-time">
+                          {new Date(ev.starts_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                        </span>
+                        <span className="timeline-week-cal__event-title">
+                          {ownerShort ? (
+                            <span className="timeline-week-cal__event-owner">{ownerShort}: </span>
+                          ) : null}
+                          {ev.title || "(No title)"}
+                        </span>
+                        {sub ? <span className="timeline-week-cal__event-collabs">{sub}</span> : null}
+                      </>
+                    );
+                    const interactive = canOpenEdit(ev);
+                    return interactive ? (
                       <button
                         key={`${ev.id}-${key}`}
                         type="button"
-                        className="timeline-week-cal__event"
-                        style={{ top, height }}
+                        className={`timeline-week-cal__event${viewMode === "stack" ? " timeline-week-cal__event--stack" : ""}`.trim()}
+                        style={stackStyle}
+                        onPointerDown={(e) => e.stopPropagation()}
                         onClick={(e) => {
                           e.stopPropagation();
                           openEdit(ev);
                         }}
                         title={ev.title}
                       >
-                        <span className="timeline-week-cal__event-time">
-                          {new Date(ev.starts_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-                        </span>
-                        <span className="timeline-week-cal__event-title">{ev.title || "(No title)"}</span>
+                        {inner}
                       </button>
+                    ) : (
+                      <div
+                        key={`${ev.id}-${key}`}
+                        className={`timeline-week-cal__event timeline-week-cal__event--readonly${viewMode === "stack" ? " timeline-week-cal__event--stack" : ""}`.trim()}
+                        style={stackStyle}
+                        title={ev.title}
+                      >
+                        {inner}
+                      </div>
                     );
                   })}
                 </div>
@@ -352,13 +725,50 @@ export function TimelineWeekCalendar({ userId }: TimelineWeekCalendarProps) {
               {modal.mode === "create" ? "New event" : "Edit event"}
             </h2>
             {error ? <p className="timeline-week-cal-modal__error">{error}</p> : null}
+            {saveConflictBlocks?.length ? (
+              <div className="timeline-week-cal-modal__warn" role="status">
+                <strong>Scheduling conflict</strong>
+                <ul className="timeline-week-cal-modal__warn-list">
+                  {saveConflictBlocks.flatMap((b) =>
+                    b.conflicts.map((ev) => {
+                      const until = new Date(ev.ends_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+                      const title = ev.title?.trim() || "(No title)";
+                      return (
+                        <li key={`${b.userId}-${ev.id}`}>
+                          {b.displayName} is busy until {until} (“{title}”).
+                        </li>
+                      );
+                    })
+                  )}
+                </ul>
+                <div className="timeline-week-cal-modal__warn-actions">
+                  <button type="button" className="timeline-week-cal-modal__cancel" onClick={() => setSaveConflictBlocks(null)} disabled={saving}>
+                    Choose another time
+                  </button>
+                  <button
+                    type="button"
+                    className="timeline-week-cal-modal__save"
+                    disabled={saving}
+                    onClick={() => {
+                      skipConflictCheckOnce.current = true;
+                      void handleSaveModal();
+                    }}
+                  >
+                    Schedule anyway
+                  </button>
+                </div>
+              </div>
+            ) : null}
             <label className="timeline-week-cal-modal__label">
               Title
               <input
                 type="text"
                 className="timeline-week-cal-modal__input"
                 value={modal.title}
-                onChange={(e) => setModal({ ...modal, title: e.target.value })}
+                onChange={(e) => {
+                  setSaveConflictBlocks(null);
+                  setModal({ ...modal, title: e.target.value });
+                }}
                 placeholder="Event title"
                 autoFocus
               />
@@ -369,7 +779,10 @@ export function TimelineWeekCalendar({ userId }: TimelineWeekCalendarProps) {
                 type="datetime-local"
                 className="timeline-week-cal-modal__input"
                 value={modal.startsLocal}
-                onChange={(e) => setModal({ ...modal, startsLocal: e.target.value })}
+                onChange={(e) => {
+                  setSaveConflictBlocks(null);
+                  setModal({ ...modal, startsLocal: e.target.value });
+                }}
               />
             </label>
             <label className="timeline-week-cal-modal__label">
@@ -378,9 +791,39 @@ export function TimelineWeekCalendar({ userId }: TimelineWeekCalendarProps) {
                 type="datetime-local"
                 className="timeline-week-cal-modal__input"
                 value={modal.endsLocal}
-                onChange={(e) => setModal({ ...modal, endsLocal: e.target.value })}
+                onChange={(e) => {
+                  setSaveConflictBlocks(null);
+                  setModal({ ...modal, endsLocal: e.target.value });
+                }}
               />
             </label>
+            {canMutate && collaboratorPickOptions.length > 0 ? (
+              <fieldset className="timeline-week-cal-modal__fieldset">
+                <legend className="timeline-week-cal-modal__legend">Collaborators</legend>
+                <p className="timeline-week-cal-modal__fieldset-hint">Each person selected also gets this event on their calendar.</p>
+                <div className="timeline-week-cal-modal__checks">
+                  {collaboratorPickOptions.map((p) => (
+                    <label key={p.id} className="timeline-week-cal-modal__check">
+                      <input
+                        type="checkbox"
+                        checked={modal.collaboratorIds.includes(p.id)}
+                        onChange={() => {
+                          setSaveConflictBlocks(null);
+                          setModal((m) => {
+                            if (!m) return m;
+                            const next = new Set(m.collaboratorIds);
+                            if (next.has(p.id)) next.delete(p.id);
+                            else next.add(p.id);
+                            return { ...m, collaboratorIds: [...next] };
+                          });
+                        }}
+                      />
+                      <span>{p.display_name}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            ) : null}
             <div className="timeline-week-cal-modal__actions">
               {modal.mode === "edit" && modal.id ? (
                 <button type="button" className="timeline-week-cal-modal__delete" onClick={() => void handleDeleteModal()} disabled={saving}>

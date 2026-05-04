@@ -727,6 +727,11 @@ export function TeamPetDashboard({
 
   const xpFor = (userId: string) => totalXpByUserId[userId] ?? 0;
 
+  const mapPins = useMemo(
+    () => pins.filter((pin) => pin.isSelf || onlineUserIds.has(pin.profile.id)),
+    [pins, onlineUserIds]
+  );
+
   return (
     <div className="team-pet-dashboard">
       <div className="team-pet-dashboard-inner">
@@ -760,8 +765,9 @@ export function TeamPetDashboard({
                     onDragStart={(e) => e.preventDefault()}
                   />
                   <div className="dashboard-map-overlays">
-              {pins.map(({ profile, petId, label, x, y, slotKey, stationId, isSelf, unread, isLeader }) => {
+              {mapPins.map(({ profile, petId, label, x, y, slotKey, stationId: _stationId, isSelf, unread, isLeader }) => {
               const isOnline = onlineUserIds.has(profile.id);
+              const presenceOnline = isSelf || isOnline;
               const totalXp = xpFor(profile.id);
               const hasForcedSlot = slotKey !== "default";
               const displayXPct = isSelf && selfMapPct ? selfMapPct.x : x;
@@ -780,8 +786,8 @@ export function TeamPetDashboard({
                       className="team-pet-map-pin-avatar"
                     />
                     <span
-                      className={`team-pet-map-presence ${isOnline ? "team-pet-map-presence-online" : "team-pet-map-presence-offline"}`}
-                      aria-label={isOnline ? "Online" : "Offline"}
+                      className={`team-pet-map-presence ${presenceOnline ? "team-pet-map-presence-online" : "team-pet-map-presence-offline"}`}
+                      aria-label={presenceOnline ? "Online" : "Offline"}
                     />
                     {!isSelf && unread > 0 ? (
                       <span className="team-pet-map-unread" aria-label={`${unread} unread messages`}>

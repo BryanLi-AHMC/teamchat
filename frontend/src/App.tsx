@@ -52,6 +52,7 @@ import { IdentityBar } from "./components/IdentityBar";
 import { HubRailWidgets } from "./components/HubRailWidgets";
 import { TeamPetDashboard } from "./components/TeamPetDashboard";
 import { TimelineWeekCalendar } from "./components/TimelineWeekCalendar";
+import { TimelineCalendarTeamRail } from "./components/TimelineCalendarTeamRail";
 import { CurrentUserPlayerCard } from "./components/CurrentUserPlayerCard";
 import { WorkspaceNavTree } from "./components/WorkspaceNavTree";
 import type { SidebarPrimaryTabId } from "./components/workspaceNavConstants";
@@ -458,6 +459,8 @@ function MainLayout() {
     () => typeof window !== "undefined" && window.matchMedia("(max-width: 900px)").matches
   );
   const [timelineCalendarWeekOffset, setTimelineCalendarWeekOffset] = useState(0);
+  const [timelineCalendarUserId, setTimelineCalendarUserId] = useState<string | null>(null);
+  const [calendarReloadToken, setCalendarReloadToken] = useState(0);
   const [restoredConversationId, setRestoredConversationId] = useState<string | null>(null);
   const timelineScrollRef = useRef<HTMLDivElement | null>(null);
   const hubRailScrollRegionRef = useRef<HTMLDivElement | null>(null);
@@ -1073,6 +1076,45 @@ function MainLayout() {
     }
     return new Map(allProfiles.map((profile) => [profile.id, profile]));
   }, [activeUsers, currentProfile]);
+
+  const teammateNameById = useMemo(() => {
+    const m: Record<string, string> = {};
+    if (currentProfile) {
+      m[currentProfile.id] = currentProfile.display_name;
+    }
+    for (const u of activeUsers) {
+      m[u.id] = u.display_name;
+    }
+    return m;
+  }, [currentProfile, activeUsers]);
+
+  const collaboratorPickOptions = useMemo(
+    () => activeUsers.map((u) => ({ id: u.id, display_name: u.display_name })),
+    [activeUsers]
+  );
+
+  const teamCalendarOverlayUserIds = useMemo(() => {
+    if (!currentProfile) {
+      return undefined;
+    }
+    const others = activeUsers
+      .filter((u) => u.id !== currentProfile.id)
+      .sort((a, b) => a.display_name.localeCompare(b.display_name));
+    return [currentProfile.id, ...others.map((u) => u.id)];
+  }, [currentProfile, activeUsers]);
+
+  useEffect(() => {
+    if (!currentProfile) {
+      return;
+    }
+    const validIds = new Set<string>([currentProfile.id, ...activeUsers.map((u) => u.id)]);
+    if (primarySidebarTab !== "timeline") {
+      return;
+    }
+    if (!timelineCalendarUserId || !validIds.has(timelineCalendarUserId)) {
+      setTimelineCalendarUserId(currentProfile.id);
+    }
+  }, [primarySidebarTab, currentProfile, activeUsers, timelineCalendarUserId]);
 
   const selectedUpdatesProfile = useMemo(() => {
     if (!selectedUpdatesUserId) {
@@ -1887,8 +1929,9 @@ function MainLayout() {
                   <>
                     <p className="sidebar-tab-sheet__title">Timeline</p>
                     <p className="sidebar-tab-sheet__muted">
-                      Your week view is in the center. Daily updates live in the workspace panel on the right. Use the
-                      hide control (») on that panel if you want to tuck it away.
+                      The week grid is in the center. Pick a teammate in the right workspace panel to view their
+                      calendar, or schedule a collab or meeting from there. Use the hide control (») on that panel to tuck
+                      it away.
                     </p>
                   </>
                 ) : null}
@@ -1938,7 +1981,20 @@ function MainLayout() {
           <div className="chat-panel-body">
           {!activeConversation && currentProfile ? (
             primarySidebarTab === "timeline" ? (
-              <TimelineWeekCalendar userId={currentProfile.id} />
+              <TimelineWeekCalendar
+                calendarUserId={timelineCalendarUserId ?? currentProfile.id}
+                viewerUserId={currentProfile.id}
+                teammateNameById={teammateNameById}
+                collaboratorPickOptions={collaboratorPickOptions}
+                reloadToken={calendarReloadToken}
+                onCalendarChanged={() => setCalendarReloadToken((n) => n + 1)}
+                teamOverlayUserIds={teamCalendarOverlayUserIds}
+                readOnlyBanner={
+                  (timelineCalendarUserId ?? currentProfile.id) !== currentProfile.id
+                    ? `Viewing ${profileById.get(timelineCalendarUserId ?? currentProfile.id)?.display_name ?? "Teammate"}'s calendar (read only)`
+                    : undefined
+                }
+              />
             ) : (
               <TeamPetDashboard
                 currentUser={currentProfile}
@@ -2208,47 +2264,15 @@ function MainLayout() {
                 />
               ) : null}
 
-              {isTeamDashboardView && primarySidebarTab === "timeline" ? (
-                <div className="hub-rail-timeline-daily sidebar-tab-sheet--timeline">
-                  <DailyUpdatesSection
-                    variant="timeline"
-                    onHideRail={collapseUpdatesRail}
-                    timelineScrollRef={timelineScrollRef}
-                    currentProfile={currentProfile}
-                    selectedUpdatesUserId={selectedUpdatesUserId}
-                    selectedUpdatesProfile={selectedUpdatesProfile}
-                    timelineInput={timelineInput}
-                    onTimelineInputChange={setTimelineInput}
-                    timelineLoading={timelineLoading}
-                    timelineError={timelineError}
-                    groupedUpdates={groupedUpdates}
-                    expandedDatesForUser={expandedDatesForSelectedUser}
-                    onToggleDateGroup={toggleDateGroup}
-                    expandedUpdateIds={expandedUpdateIds}
-                    onToggleExpandedUpdate={(updateId) =>
-                      setExpandedUpdateIds((existing) => {
-                        const next = new Set(existing);
-                        if (next.has(updateId)) {
-                          next.delete(updateId);
-                        } else {
-                          next.add(updateId);
-                        }
-                        return next;
-                      })
-                    }
-                    onDeleteUpdate={handleDeleteUpdate}
-                    isPostingUpdate={isPostingUpdate}
-                    onPostUpdate={handlePostUpdate}
-                    hubDailyExpanded={hubDailyExpanded}
-                    onHubDailyExpandedToggle={() => setHubDailyExpanded((v) => !v)}
-                    calendarWeekOffset={timelineCalendarWeekOffset}
-                    onCalendarWeekOffsetDelta={(delta) => setTimelineCalendarWeekOffset((o) => o + delta)}
-                    updatesDateKeySet={updatesDateKeySet}
-                    onJumpToDate={handleJumpToDate}
-                    onViewUpdatesProfile={handleViewUpdatesProfile}
-                    renderPresencePetAvatar={renderPresencePetAvatar}
-                  />
-                </div>
+              {isTeamDashboardView && primarySidebarTab === "timeline" && currentProfile ? (
+                <TimelineCalendarTeamRail
+                  currentProfile={currentProfile}
+                  teammates={activeUsers}
+                  selectedCalendarUserId={timelineCalendarUserId ?? currentProfile.id}
+                  onSelectCalendarUserId={setTimelineCalendarUserId}
+                  renderPresencePetAvatar={renderPresencePetAvatar}
+                  onCalendarChanged={() => setCalendarReloadToken((n) => n + 1)}
+                />
               ) : null}
 
           {currentProfile &&
