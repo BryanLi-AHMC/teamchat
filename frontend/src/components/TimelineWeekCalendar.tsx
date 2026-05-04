@@ -15,7 +15,7 @@ import {
   userUpdateDisplayAtIso,
   type UserUpdate,
 } from "../lib/updates";
-import { getLocalDateKey, getWeekDaysSunday } from "../utils/timelineDates";
+import { getLocalDateKey, getWeekDaysMonFri } from "../utils/timelineDates";
 
 const START_HOUR = 6;
 const END_HOUR_EXCLUSIVE = 22;
@@ -238,13 +238,16 @@ export function TimelineWeekCalendar({
   } | null>(null);
   const dragListenersCleanupRef = useRef<(() => void) | null>(null);
 
-  const weekDays = useMemo(() => getWeekDaysSunday(weekOffset), [weekOffset]);
+  const weekDays = useMemo(() => getWeekDaysMonFri(weekOffset), [weekOffset]);
   const rangeStart = useMemo(() => startOfLocalDay(weekDays[0]!), [weekDays]);
-  const rangeEnd = useMemo(() => addDays(startOfLocalDay(weekDays[6]!), 1), [weekDays]);
+  const rangeEnd = useMemo(
+    () => addDays(startOfLocalDay(weekDays[weekDays.length - 1]!), 1),
+    [weekDays]
+  );
 
   const rangeLabel = useMemo(() => {
     const a = weekDays[0]!;
-    const b = weekDays[6]!;
+    const b = weekDays[weekDays.length - 1]!;
     const sameMonth = a.getMonth() === b.getMonth();
     const left = a.toLocaleDateString([], { month: "short", day: "numeric" });
     const right = b.toLocaleDateString(
@@ -737,10 +740,10 @@ export function TimelineWeekCalendar({
           Today
         </button>
         <div className="timeline-week-cal__nav">
-          <button type="button" className="timeline-week-cal__icon-btn" aria-label="Previous week" onClick={() => setWeekOffset((o) => o - 1)}>
+          <button type="button" className="timeline-week-cal__icon-btn" aria-label="Previous work week" onClick={() => setWeekOffset((o) => o - 1)}>
             ‹
           </button>
-          <button type="button" className="timeline-week-cal__icon-btn" aria-label="Next week" onClick={() => setWeekOffset((o) => o + 1)}>
+          <button type="button" className="timeline-week-cal__icon-btn" aria-label="Next work week" onClick={() => setWeekOffset((o) => o + 1)}>
             ›
           </button>
         </div>
@@ -815,7 +818,7 @@ export function TimelineWeekCalendar({
       {readOnlyBanner ? <p className="timeline-week-cal__banner timeline-week-cal__banner--muted">{readOnlyBanner}</p> : null}
       {viewMode === "stack" && canMutate ? (
         <p className="timeline-week-cal__banner timeline-week-cal__banner--muted">
-          Team overlap shows everyone on one week. Switch to &quot;One person&quot; to add events or click / drag empty slots.
+          Team overlap shows everyone on one work week (Mon–Fri). Switch to &quot;One person&quot; to add events or click / drag empty slots.
         </p>
       ) : null}
       {error && !modal ? <p className="timeline-week-cal__banner timeline-week-cal__banner--error">{error}</p> : null}

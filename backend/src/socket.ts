@@ -4,6 +4,7 @@ import { Server } from "socket.io";
 import {
   assertConversationMembership,
   insertMessage,
+  storedMessageToNewPayload,
   toConversationRoom,
   updateMemberLastRead,
   validateMessageInput,
@@ -147,7 +148,13 @@ export function attachSocketServer(
       void socket.leave(toConversationRoom(conversationId));
     });
 
-    socket.on("message:send", async (payload: SendPayload) => {
+    socket.on("message:send", async (payload: SendPayload, ack?: (result: unknown) => void) => {
+      const reply = (result: { ok: true; message: ReturnType<typeof storedMessageToNewPayload> } | { ok: false; error: string }) => {
+        if (typeof ack === "function") {
+          ack(result);
+        }
+      };
+
       try {
         const currentProfile = socket.data.currentProfile as SocketCurrentProfile | undefined;
         const conversationId = payload?.conversationId;
@@ -170,26 +177,13 @@ export function attachSocketServer(
           attachment: parsed.attachment,
         });
 
-        io.to(room).emit("message:new", {
-          id: stored.id,
-          conversationId: stored.conversation_id,
-          senderId: stored.sender_id,
-          body: stored.body,
-          messageType: stored.message_type,
-          attachment: stored.attachment_path
-            ? {
-                path: stored.attachment_path,
-                name: stored.attachment_name,
-                mimeType: stored.attachment_mime_type,
-                size: stored.attachment_size,
-              }
-            : null,
-          createdAt: stored.created_at,
-        });
+        const newPayload = storedMessageToNewPayload(stored);
+        io.to(room).emit("message:new", newPayload);
+        reply({ ok: true, message: newPayload });
       } catch (error) {
-        socket.emit("message:error", {
-          message: error instanceof Error ? error.message : "Unable to send message.",
-        });
+        const message = error instanceof Error ? error.message : "Unable to send message.";
+        socket.emit("message:error", { message });
+        reply({ ok: false, error: message });
       }
     });
 

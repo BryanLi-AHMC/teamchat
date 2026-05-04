@@ -4,6 +4,7 @@ import {
   FormEvent,
   KeyboardEvent,
   MouseEvent as ReactMouseEvent,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -24,7 +25,12 @@ import {
   getDmConversationMapForUser,
   getGroupConversationsForUser,
   getLatestMessagesByConversationId,
-  getMessages,
+  getMessagesByIds,
+  getUnreadMessageCountsByConversationIds,
+  getMessagesOlderThan,
+  getRecentMessages,
+  CHAT_INITIAL_PAGE_SIZE,
+  CHAT_OLDER_PAGE_SIZE,
   getOrCreateDmConversation,
   memberReadCursorIncludesMessage,
   removeGroupMember,
@@ -39,6 +45,7 @@ import { createTypingChannel, subscribeToTeamPresence } from "./lib/presence";
 import { awardMyUpdateXp, type UserStats } from "./lib/profileStats";
 import {
   disconnectSocketClient,
+  emitMessageSendAndWait,
   getResolvedSocketUrl,
   getSocketClient,
   nudgeSocketReconnect,
@@ -431,6 +438,10 @@ function MainLayout() {
   const [activeConversation, setActiveConversation] = useState<ConversationSummary | null>(null);
   const [activeConversationMembers, setActiveConversationMembers] = useState<ConversationMember[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  /** Read-cursor message rows not in `messages` (pagination), for comparing last_read to your sends. */
+  const [readReceiptCursorById, setReadReceiptCursorById] = useState<Record<string, ChatMessage>>({});
+  const [hasMoreOlderMessages, setHasMoreOlderMessages] = useState(true);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
   const [composerText, setComposerText] = useState("");
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const [attachmentUrlByPath, setAttachmentUrlByPath] = useState<Record<string, string>>({});
@@ -472,8 +483,21 @@ function MainLayout() {
   const typingIdleTimerRef = useRef<number | null>(null);
   const socketRef = useRef<ReturnType<typeof getSocketClient> | null>(null);
   const activeConversationIdRef = useRef<string | null>(null);
+  const dmConversationByUserIdRef = useRef(dmConversationByUserId);
+  const groupConversationsRef = useRef(groupConversations);
+  /** Conversation rooms this socket has joined (for diffing on membership changes). */
+  const joinedConversationRoomsRef = useRef<Set<string>>(new Set());
   const socketConnectJoinHandlerRef = useRef<(() => void) | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
+  const messageListRef = useRef<HTMLDivElement | null>(null);
+  /** When true, new messages / layout growth keep the list pinned to the bottom (Messages-style). */
+  const stickToBottomRef = useRef(true);
+  const pendingScrollRestoreRef = useRef<{ prevHeight: number; prevScrollTop: number } | null>(null);
+  const loadingOlderGuardRef = useRef(false);
+
+  activeConversationIdRef.current = activeConversation?.id ?? null;
+  dmConversationByUserIdRef.current = dmConversationByUserId;
+  groupConversationsRef.current = groupConversations;
 
   useEffect(() => {
     if (!selectedPetId) {
@@ -700,6 +724,47 @@ function MainLayout() {
   }, [currentProfile?.id, dmConversationByUserId, groupConversations]);
 
   useEffect(() => {
+    if (!currentProfile?.id) {
+      return;
+    }
+
+    const conversationIds = [
+      ...Object.values(dmConversationByUserId),
+      ...groupConversations.map((conversation) => conversation.id),
+    ];
+
+    if (conversationIds.length === 0) {
+      setUnreadByConversationId({});
+      return;
+    }
+
+    const uniqueConversationIds = Array.from(new Set(conversationIds));
+    let cancelled = false;
+
+    void getUnreadMessageCountsByConversationIds(uniqueConversationIds)
+      .then((counts) => {
+        if (cancelled) {
+          return;
+        }
+        const openId = activeConversationIdRef.current;
+        setUnreadByConversationId((prev) => {
+          const next: Record<string, number> = { ...prev };
+          for (const id of uniqueConversationIds) {
+            next[id] = id === openId ? 0 : counts[id] ?? 0;
+          }
+          return next;
+        });
+      })
+      .catch((err) => {
+        console.warn("[unread counts] unable to sync from server", err);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentProfile?.id, dmConversationByUserId, groupConversations]);
+
+  useEffect(() => {
     if (!currentProfile || isInitializing || hasCompletedInitialLoadRef.current) {
       return;
     }
@@ -794,7 +859,7 @@ function MainLayout() {
         const [conversation, members, initialMessages] = await Promise.all([
           getConversationById(activeConversation.id),
           getConversationMembers(activeConversation.id),
-          getMessages(activeConversation.id),
+          getRecentMessages(activeConversation.id, CHAT_INITIAL_PAGE_SIZE),
         ]);
 
         if (!isMounted) {
@@ -804,6 +869,7 @@ function MainLayout() {
         setActiveConversation(conversation);
         setActiveConversationMembers(members);
         setMessages(initialMessages);
+        setHasMoreOlderMessages(initialMessages.length >= CHAT_INITIAL_PAGE_SIZE);
       } catch (error) {
         if (isMounted) {
           setChatError(error instanceof Error ? error.message : "Unable to load conversation.");
@@ -819,8 +885,155 @@ function MainLayout() {
   }, [activeConversation?.id]);
 
   useEffect(() => {
+    setReadReceiptCursorById({});
+  }, [activeConversation?.id]);
+
+  useEffect(() => {
+    if (!activeConversation?.id) {
+      return;
+    }
+
+    const inWindow = new Set(messages.map((m) => m.id));
+    const idsToFetch = Array.from(
+      new Set(
+        activeConversationMembers
+          .map((m) => m.last_read_message_id)
+          .filter((id): id is string => Boolean(id))
+          .filter((id) => !inWindow.has(id))
+      )
+    );
+
+    if (idsToFetch.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    void getMessagesByIds(idsToFetch)
+      .then((rows) => {
+        if (cancelled) {
+          return;
+        }
+        setReadReceiptCursorById((prev) => {
+          const next = { ...prev };
+          for (const row of rows) {
+            next[row.id] = row;
+          }
+          return next;
+        });
+      })
+      .catch(() => {
+        /* read receipts degrade to Sent if cursor rows fail to load */
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeConversation?.id, activeConversationMembers, messages]);
+
+  useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    stickToBottomRef.current = true;
+  }, [activeConversation?.id]);
+
+  const loadOlderMessages = useCallback(async () => {
+    const conversationId = activeConversation?.id;
+    if (!conversationId || loadingOlderGuardRef.current || !hasMoreOlderMessages) {
+      return;
+    }
+    const first = messagesRef.current[0];
+    if (!first) {
+      return;
+    }
+
+    const el = messageListRef.current;
+    const prevHeight = el?.scrollHeight ?? 0;
+    const prevScrollTop = el?.scrollTop ?? 0;
+
+    loadingOlderGuardRef.current = true;
+    setLoadingOlderMessages(true);
+    try {
+      const older = await getMessagesOlderThan(conversationId, first, CHAT_OLDER_PAGE_SIZE);
+      if (activeConversationIdRef.current !== conversationId) {
+        return;
+      }
+      if (older.length === 0) {
+        setHasMoreOlderMessages(false);
+        return;
+      }
+
+      const existingIds = new Set(messagesRef.current.map((m) => m.id));
+      const merged = older.filter((o) => !existingIds.has(o.id));
+      if (merged.length === 0) {
+        setHasMoreOlderMessages(false);
+        return;
+      }
+
+      setHasMoreOlderMessages(older.length >= CHAT_OLDER_PAGE_SIZE);
+      pendingScrollRestoreRef.current = { prevHeight, prevScrollTop };
+      setMessages((prev) => [...merged, ...prev]);
+    } catch (err) {
+      console.error("Unable to load older messages", err);
+    } finally {
+      loadingOlderGuardRef.current = false;
+      setLoadingOlderMessages(false);
+    }
+  }, [activeConversation?.id, hasMoreOlderMessages]);
+
+  const MESSAGE_LIST_STICK_THRESHOLD_PX = 120;
+  const MESSAGE_LIST_LOAD_OLDER_TOP_PX = 160;
+
+  const onMessageListScroll = () => {
+    const el = messageListRef.current;
+    if (!el) {
+      return;
+    }
+    stickToBottomRef.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight < MESSAGE_LIST_STICK_THRESHOLD_PX;
+
+    if (
+      el.scrollTop <= MESSAGE_LIST_LOAD_OLDER_TOP_PX &&
+      hasMoreOlderMessages &&
+      !loadingOlderGuardRef.current
+    ) {
+      void loadOlderMessages();
+    }
+  };
+
+  useLayoutEffect(() => {
+    const el = messageListRef.current;
+    if (!el || !activeConversation) {
+      return;
+    }
+    const pending = pendingScrollRestoreRef.current;
+    if (pending) {
+      pendingScrollRestoreRef.current = null;
+      const delta = el.scrollHeight - pending.prevHeight;
+      el.scrollTop = pending.prevScrollTop + delta;
+      return;
+    }
+    if (stickToBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [messages, activeConversation]);
+
+  useEffect(() => {
+    const el = messageListRef.current;
+    if (!el) {
+      return;
+    }
+    const ro = new ResizeObserver(() => {
+      if (stickToBottomRef.current) {
+        el.scrollTop = el.scrollHeight;
+      }
+    });
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+    };
+  }, [activeConversation?.id]);
 
   useEffect(() => {
     if (!activeConversation?.id || messages.length === 0) {
@@ -882,15 +1095,8 @@ function MainLayout() {
     };
   }, [attachmentUrlByPath, messages]);
 
-  useEffect(() => {
-    if (!currentProfile?.id) {
-      return;
-    }
-
-    let cancelled = false;
-
-    const onMessageNew = (incomingPayload: Parameters<typeof toChatMessageFromSocket>[0]) => {
-      const message = toChatMessageFromSocket(incomingPayload);
+  const mergeIncomingMessage = useCallback(
+    (message: ChatMessage) => {
       const activeConversationId = activeConversationIdRef.current;
       const isOpenConversation = message.conversation_id === activeConversationId;
       setLatestMessageByConversationId((existing) => ({
@@ -905,12 +1111,25 @@ function MainLayout() {
           }
           return [...existing, message];
         });
-      } else if (message.sender_id !== currentProfile.id) {
+      } else if (currentProfile && message.sender_id !== currentProfile.id) {
         setUnreadByConversationId((existing) => ({
           ...existing,
           [message.conversation_id]: (existing[message.conversation_id] ?? 0) + 1,
         }));
       }
+    },
+    [currentProfile?.id]
+  );
+
+  useEffect(() => {
+    if (!currentProfile?.id) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const onMessageNew = (incomingPayload: Parameters<typeof toChatMessageFromSocket>[0]) => {
+      mergeIncomingMessage(toChatMessageFromSocket(incomingPayload));
     };
 
     const onMessageRead = (payload: { conversationId: string; userId: string; lastReadMessageId: string }) => {
@@ -980,16 +1199,30 @@ function MainLayout() {
       if (socketConnectJoinHandlerRef.current) {
         nextSocket.off("connect", socketConnectJoinHandlerRef.current);
       }
-      const joinActiveConversationRoom = () => {
-        const conversationId = activeConversationIdRef.current;
-        if (conversationId) {
+      const joinAllMyConversationRooms = () => {
+        if (!nextSocket.connected) {
+          return;
+        }
+        joinedConversationRoomsRef.current = new Set();
+        const ids = new Set<string>(
+          [
+            ...Object.values(dmConversationByUserIdRef.current),
+            ...groupConversationsRef.current.map((g) => g.id),
+          ].filter(Boolean) as string[]
+        );
+        const activeId = activeConversationIdRef.current;
+        if (activeId) {
+          ids.add(activeId);
+        }
+        for (const conversationId of ids) {
           nextSocket.emit("conversation:join", { conversationId });
+          joinedConversationRoomsRef.current.add(conversationId);
         }
       };
-      socketConnectJoinHandlerRef.current = joinActiveConversationRoom;
-      nextSocket.on("connect", joinActiveConversationRoom);
+      socketConnectJoinHandlerRef.current = joinAllMyConversationRooms;
+      nextSocket.on("connect", joinAllMyConversationRooms);
       if (nextSocket.connected) {
-        joinActiveConversationRoom();
+        joinAllMyConversationRooms();
       }
 
       socketRef.current = nextSocket;
@@ -1054,26 +1287,34 @@ function MainLayout() {
       disconnectSocketClient();
       socketRef.current = null;
     };
-  }, [currentProfile?.id]);
+  }, [currentProfile?.id, mergeIncomingMessage]);
 
   useEffect(() => {
     const socket = socketRef.current;
-    const previousConversationId = activeConversationIdRef.current;
-    const nextConversationId = activeConversation?.id ?? null;
-    if (!socket) {
-      activeConversationIdRef.current = nextConversationId;
+    if (!socket?.connected) {
       return;
     }
 
-    if (previousConversationId && previousConversationId !== nextConversationId) {
-      socket.emit("conversation:leave", { conversationId: previousConversationId });
-    }
-    if (nextConversationId) {
-      socket.emit("conversation:join", { conversationId: nextConversationId });
+    const ids = new Set<string>(
+      [...Object.values(dmConversationByUserId), ...groupConversations.map((g) => g.id)].filter(Boolean) as string[]
+    );
+    if (activeConversation?.id) {
+      ids.add(activeConversation.id);
     }
 
-    activeConversationIdRef.current = nextConversationId;
-  }, [activeConversation?.id]);
+    const prev = joinedConversationRoomsRef.current;
+    for (const conversationId of ids) {
+      if (!prev.has(conversationId)) {
+        socket.emit("conversation:join", { conversationId });
+      }
+    }
+    for (const conversationId of prev) {
+      if (!ids.has(conversationId)) {
+        socket.emit("conversation:leave", { conversationId });
+      }
+    }
+    joinedConversationRoomsRef.current = new Set(ids);
+  }, [dmConversationByUserId, groupConversations, activeConversation?.id]);
 
   useEffect(() => {
     if (!selectedUpdatesUserId) {
@@ -1117,12 +1358,23 @@ function MainLayout() {
     return new Map(allProfiles.map((profile) => [profile.id, profile]));
   }, [activeUsers, currentProfile]);
 
+  const messageByIdForReadReceipts = useMemo(() => {
+    const m = new Map<string, ChatMessage>();
+    for (const row of Object.values(readReceiptCursorById)) {
+      m.set(row.id, row);
+    }
+    for (const msg of messages) {
+      m.set(msg.id, msg);
+    }
+    return m;
+  }, [messages, readReceiptCursorById]);
+
+  /** Own messages only: "Read" / "Sent" (DM), or "Read" / "Read n/N" / "Sent" (groups). */
   const readReceiptByMessageId = useMemo(() => {
     const map = new Map<string, string>();
     if (!currentProfile?.id) {
       return map;
     }
-    const byId = new Map(messages.map((m) => [m.id, m]));
     const others = activeConversationMembers.filter((m) => m.user_id !== currentProfile.id);
     if (others.length === 0) {
       return map;
@@ -1131,22 +1383,23 @@ function MainLayout() {
       if (message.sender_id !== currentProfile.id) {
         continue;
       }
-      const readers = others.filter((m) => memberReadCursorIncludesMessage(m.last_read_message_id, message, byId));
-      if (readers.length === 0) {
-        continue;
-      }
-      if (readers.length === others.length) {
-        map.set(message.id, others.length === 1 ? "Read" : "Read by everyone");
-      } else if (readers.length === 1) {
-        const rid = readers[0]!.user_id;
-        const name = profileById.get(rid)?.display_name ?? "Teammate";
-        map.set(message.id, `Seen by ${name}`);
+      const readers = others.filter((member) =>
+        memberReadCursorIncludesMessage(member.last_read_message_id, message, messageByIdForReadReceipts)
+      );
+      const allRead = readers.length === others.length;
+      const anyRead = readers.length > 0;
+      if (others.length === 1) {
+        map.set(message.id, allRead ? "Read" : "Sent");
+      } else if (allRead) {
+        map.set(message.id, "Read");
+      } else if (anyRead) {
+        map.set(message.id, `Read ${readers.length}/${others.length}`);
       } else {
-        map.set(message.id, `Seen by ${readers.length} people`);
+        map.set(message.id, "Sent");
       }
     }
     return map;
-  }, [messages, activeConversationMembers, currentProfile, profileById]);
+  }, [messages, activeConversationMembers, currentProfile?.id, messageByIdForReadReceipts]);
 
   const teammateNameById = useMemo(() => {
     const m: Record<string, string> = {};
@@ -1723,11 +1976,12 @@ function MainLayout() {
       if (!socket) {
         throw new Error("Chat is still connecting. Try again in a moment.");
       }
-      socket.emit("message:send", {
+      const ackPayload = await emitMessageSendAndWait(socket, {
         conversationId: activeConversation.id,
         body: composerText.trim(),
         messageType: "text",
       });
+      mergeIncomingMessage(toChatMessageFromSocket(ackPayload));
       setComposerText("");
       await refreshGroups();
     } catch (error) {
@@ -1776,7 +2030,7 @@ function MainLayout() {
       if (!socket) {
         throw new Error("Chat is still connecting. Try again in a moment.");
       }
-      socket.emit("message:send", {
+      const ackPayload = await emitMessageSendAndWait(socket, {
         conversationId: activeConversation.id,
         body: "",
         messageType: isImage ? "image" : "file",
@@ -1787,6 +2041,7 @@ function MainLayout() {
           size: file.size,
         },
       });
+      mergeIncomingMessage(toChatMessageFromSocket(ackPayload));
       await refreshGroups();
     } catch (error) {
       setChatError(error instanceof Error ? error.message : "Unable to upload attachment.");
@@ -2099,7 +2354,12 @@ function MainLayout() {
             ) : null}
           </header>
 
-          <div className="message-list">
+          <div className="message-list" ref={messageListRef} onScroll={onMessageListScroll}>
+            {loadingOlderMessages ? (
+              <div className="message-list__load-older" aria-live="polite">
+                Loading older messages…
+              </div>
+            ) : null}
             {messages.map((message, index) => {
               const previousMessage = messages[index - 1];
               const isOwn = message.sender_id === currentProfile?.id;
@@ -2187,8 +2447,16 @@ function MainLayout() {
                         <span className="message-time">
                           {new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                         </span>
-                        {isOwn && readReceiptByMessageId.get(message.id) ? (
-                          <span className="message-read-receipt">{readReceiptByMessageId.get(message.id)}</span>
+                        {isOwn ? (
+                          <span
+                            className={`message-read-receipt${
+                              (readReceiptByMessageId.get(message.id) ?? "Sent").startsWith("Read")
+                                ? " message-read-receipt--read"
+                                : " message-read-receipt--sent"
+                            }`}
+                          >
+                            {readReceiptByMessageId.get(message.id) ?? "Sent"}
+                          </span>
                         ) : null}
                       </div>
                     </div>

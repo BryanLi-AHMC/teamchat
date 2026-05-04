@@ -22,6 +22,41 @@ export type StoredMessage = {
   created_at: string;
 };
 
+/** Same shape as `message:new` broadcast — returned to sender via `message:send` ack for instant UI. */
+export type MessageNewPayload = {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  body: string;
+  messageType: MessageType;
+  attachment: {
+    path: string;
+    name: string;
+    mimeType: string;
+    size: number;
+  } | null;
+  createdAt: string;
+};
+
+export function storedMessageToNewPayload(stored: StoredMessage): MessageNewPayload {
+  return {
+    id: stored.id,
+    conversationId: stored.conversation_id,
+    senderId: stored.sender_id,
+    body: stored.body,
+    messageType: stored.message_type,
+    attachment: stored.attachment_path
+      ? {
+          path: stored.attachment_path,
+          name: stored.attachment_name ?? "",
+          mimeType: stored.attachment_mime_type ?? "",
+          size: Number(stored.attachment_size ?? 0),
+        }
+      : null,
+    createdAt: stored.created_at,
+  };
+}
+
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const ALLOWED_FILE_MIME_PREFIXES = ["image/", "application/pdf", "text/plain"];

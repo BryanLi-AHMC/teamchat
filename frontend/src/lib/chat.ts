@@ -33,6 +33,15 @@ export type ChatMessage = {
   created_at: string;
 };
 
+const MESSAGE_LIST_COLUMNS =
+  "id,conversation_id,sender_id,body,message_type,attachment_path,attachment_name,attachment_mime_type,attachment_size,created_at";
+
+/** First paint: recent tail of the thread (newest at end after reverse). */
+export const CHAT_INITIAL_PAGE_SIZE = 60;
+
+/** Each scroll-up batch. */
+export const CHAT_OLDER_PAGE_SIZE = 45;
+
 export type OutgoingAttachment = {
   path: string;
   name: string;
@@ -231,20 +240,103 @@ export async function getConversationMembers(conversationId: string) {
   })) as ConversationMember[];
 }
 
-export async function getMessages(conversationId: string) {
+/** Latest `limit` messages, oldest-first (ready to render). */
+export async function getRecentMessages(conversationId: string, limit = CHAT_INITIAL_PAGE_SIZE) {
   const { data, error } = await supabase
     .from("messages")
-    .select(
-      "id,conversation_id,sender_id,body,message_type,attachment_path,attachment_name,attachment_mime_type,attachment_size,created_at"
-    )
+    .select(MESSAGE_LIST_COLUMNS)
     .eq("conversation_id", conversationId)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const rows = (data ?? []) as ChatMessage[];
+  return rows.slice().reverse();
+}
+
+/**
+ * Messages strictly before `cursorMessage` (for infinite scroll up).
+ * Uses (created_at, id) cursor when PostgREST accepts it; falls back to created_at only.
+ */
+export async function getMessagesOlderThan(
+  conversationId: string,
+  cursorMessage: ChatMessage,
+  limit = CHAT_OLDER_PAGE_SIZE
+) {
+  const t = cursorMessage.created_at;
+  const id = cursorMessage.id;
+
+  const buildBase = () =>
+    supabase
+      .from("messages")
+      .select(MESSAGE_LIST_COLUMNS)
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(limit);
+
+  const withOr = await buildBase().or(`and(created_at.eq.${t},id.lt.${id}),created_at.lt.${t}`);
+  if (!withOr.error) {
+    return (withOr.data ?? []).slice().reverse() as ChatMessage[];
+  }
+
+  const withLt = await buildBase().lt("created_at", t);
+  if (withLt.error) {
+    throw new Error(withLt.error.message);
+  }
+  return (withLt.data ?? []).slice().reverse() as ChatMessage[];
+}
+
+/** Full history (avoid for huge threads; prefer paginated helpers). */
+export async function getMessages(conversationId: string) {
+  return getRecentMessages(conversationId, 20_000);
+}
+
+/** Load rows by primary key (e.g. read cursors not in the current paginated window). */
+export async function getMessagesByIds(ids: string[]) {
+  const unique = Array.from(new Set(ids.filter(Boolean)));
+  if (unique.length === 0) {
+    return [] as ChatMessage[];
+  }
+
+  const { data, error } = await supabase.from("messages").select(MESSAGE_LIST_COLUMNS).in("id", unique);
 
   if (error) {
     throw new Error(error.message);
   }
 
   return (data ?? []) as ChatMessage[];
+}
+
+/** Unread counts (messages from others after your read cursor) for sidebar badges. */
+export async function getUnreadMessageCountsByConversationIds(conversationIds: string[]) {
+  const unique = Array.from(new Set(conversationIds.filter(Boolean)));
+  if (unique.length === 0) {
+    return {} as Record<string, number>;
+  }
+
+  const { data, error } = await supabase.rpc("unread_message_counts_for_conversations", {
+    p_conversation_ids: unique,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const out: Record<string, number> = {};
+  for (const id of unique) {
+    out[id] = 0;
+  }
+  for (const row of (data ?? []) as { conversation_id: string; unread_count: number | string }[]) {
+    if (row?.conversation_id) {
+      out[row.conversation_id] = Number(row.unread_count);
+    }
+  }
+  return out;
 }
 
 export async function getLatestMessagesByConversationId(conversationIds: string[]) {

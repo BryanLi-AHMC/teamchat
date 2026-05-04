@@ -1683,9 +1683,9 @@
 
 .timeline-week-cal__grid {
   display: grid;
-  grid-template-columns: 52px repeat(7, minmax(72px, 1fr));
+  grid-template-columns: 52px repeat(5, minmax(88px, 1fr));
   grid-template-rows: auto var(--twc-grid-height, 832px);
-  min-width: 720px;
+  min-width: 560px;
 }
 
 .timeline-week-cal__corner {
@@ -2793,6 +2793,18 @@
   box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.35);
 }
 
+.workspace-nav-tree__avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.workspace-nav-tree__avatar-wrap--square .workspace-nav-tree__group-avatar {
+  margin: 0;
+}
+
 .workspace-nav-tree__avatar-hit {
   flex-shrink: 0;
   pointer-events: none;
@@ -2807,10 +2819,42 @@
   pointer-events: none;
 }
 
+.workspace-nav-tree__nested-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .workspace-nav-tree__nested-name {
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
   font-weight: 650;
   color: #f1f5f9;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-nav-tree__name-unread {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 0 0 1px #b91c1c, 0 2px 6px rgba(0, 0, 0, 0.35);
+  z-index: 1;
 }
 
 .workspace-nav-tree__nested-preview {
@@ -3708,12 +3752,22 @@
 .message-list {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   padding: 20px 16px;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 12px;
   background: transparent;
+}
+
+.message-list__load-older {
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 12px;
+  color: #7e7489;
+  padding: 2px 0 6px;
 }
 
 .message-separator {
@@ -3864,11 +3918,24 @@
 .message-read-receipt {
   font-size: 11px;
   font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.message-read-receipt--sent {
   color: #64748b;
 }
 
-.message-row-own .message-read-receipt {
-  color: color-mix(in srgb, #ffffff 85%, #94a3b8);
+.message-read-receipt--read {
+  color: #0d9488;
+  font-weight: 700;
+}
+
+.message-row-own .message-read-receipt--sent {
+  color: color-mix(in srgb, #ffffff 72%, #94a3b8);
+}
+
+.message-row-own .message-read-receipt--read {
+  color: color-mix(in srgb, #5eead4 88%, #ffffff);
 }
 
 .message-bubble-wrap {

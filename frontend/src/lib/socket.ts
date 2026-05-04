@@ -32,21 +32,43 @@ type ServerToClientEvents = {
   }) => void;
 };
 
+type MessageSendClientPayload = {
+  conversationId: string;
+  body: string;
+  messageType: "text" | "image" | "file";
+  attachment?: {
+    path: string;
+    name: string;
+    mimeType: string;
+    size: number;
+  };
+};
+
+/** Same as `message:new` payload; returned from `message:send` ack for instant sender UI. */
+export type MessageNewTransportPayload = {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  body: string;
+  messageType: "text" | "image" | "file";
+  attachment?: {
+    path: string;
+    name: string;
+    mimeType: string;
+    size: number;
+  } | null;
+  createdAt: string;
+};
+
+export type MessageSendAckResult =
+  | { ok: true; message: MessageNewTransportPayload }
+  | { ok: false; error: string };
+
 type ClientToServerEvents = {
   "conversation:join": (payload: { conversationId: string }) => void;
   "conversation:leave": (payload: { conversationId: string }) => void;
   "message:read": (payload: { conversationId: string; lastReadMessageId: string }) => void;
-  "message:send": (payload: {
-    conversationId: string;
-    body: string;
-    messageType: "text" | "image" | "file";
-    attachment?: {
-      path: string;
-      name: string;
-      mimeType: string;
-      size: number;
-    };
-  }) => void;
+  "message:send": (payload: MessageSendClientPayload) => void;
 };
 
 let socket: Socket<ServerToClientEvents, ClientToServerEvents> | null = null;
@@ -185,6 +207,41 @@ export type WaitForSocketResult = { ok: true } | { ok: false; reason: string };
  * Resolves when the socket connects, or with a failure reason on connect_error / timeout.
  * Handshake failures (e.g. auth) emit connect_error, not connect — without this, waits always time out.
  */
+/**
+ * Sends a message and waits for the server ack (includes persisted message).
+ * Updates sidebar / thread immediately even if `message:new` broadcast is missed.
+ */
+export function emitMessageSendAndWait(
+  sock: Socket<ServerToClientEvents, ClientToServerEvents>,
+  payload: MessageSendClientPayload,
+  timeoutMs = 20_000
+): Promise<MessageNewTransportPayload> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      reject(new Error("Send timed out."));
+    }, timeoutMs);
+
+    const emitWithAck = sock.emit as (
+      ev: "message:send",
+      data: MessageSendClientPayload,
+      ack: (res: MessageSendAckResult) => void
+    ) => Socket;
+
+    emitWithAck.call(sock, "message:send", payload, (res: MessageSendAckResult) => {
+      window.clearTimeout(timer);
+      if (!res || typeof res !== "object" || !("ok" in res)) {
+        reject(new Error("Invalid response from server."));
+        return;
+      }
+      if (!res.ok) {
+        reject(new Error(res.error || "Unable to send message."));
+        return;
+      }
+      resolve(res.message);
+    });
+  });
+}
+
 export function waitForSocketConnection(sock: Socket, timeoutMs: number): Promise<WaitForSocketResult> {
   if (sock.connected) {
     return Promise.resolve({ ok: true });

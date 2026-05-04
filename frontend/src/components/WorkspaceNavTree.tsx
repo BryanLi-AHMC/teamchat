@@ -103,24 +103,31 @@ export function WorkspaceNavTree({
                             ? latestMessage.attachment_name || "File"
                             : "");
                       const isConvActive = activeConversationId === dmConversationId;
+                      const unreadLabel = unreadCount > 0 ? `, ${formatUnreadCount(unreadCount)} unread` : "";
                       return (
                         <li key={user.id} className="workspace-nav-tree__nested-dm-row">
                           <button
                             type="button"
                             className={`workspace-nav-tree__nested-btn${isConvActive ? " workspace-nav-tree__nested-btn--active" : ""}`}
                             onClick={() => onOpenDm(user.id)}
-                            aria-label={`Open chat with ${user.display_name}`}
+                            aria-label={`Open chat with ${user.display_name}${unreadLabel}`}
                           >
-                            <span className="workspace-nav-tree__avatar-hit" aria-hidden>
-                              {renderPresencePetAvatar(user, "sm")}
+                            <span className="workspace-nav-tree__avatar-wrap">
+                              <span className="workspace-nav-tree__avatar-hit" aria-hidden>
+                                {renderPresencePetAvatar(user, "sm")}
+                              </span>
                             </span>
                             <span className="workspace-nav-tree__nested-text">
-                              <span className="workspace-nav-tree__nested-name">{user.display_name}</span>
+                              <span className="workspace-nav-tree__nested-name-row">
+                                <span className="workspace-nav-tree__nested-name">{user.display_name}</span>
+                                {unreadCount > 0 ? (
+                                  <span className="workspace-nav-tree__name-unread" title={`${unreadCount} unread`} aria-hidden>
+                                    {formatUnreadCount(unreadCount)}
+                                  </span>
+                                ) : null}
+                              </span>
                               <span className="workspace-nav-tree__nested-preview">{preview || "No messages yet"}</span>
                             </span>
-                            {unreadCount > 0 ? (
-                              <span className="workspace-nav-tree__mini-badge">{formatUnreadCount(unreadCount)}</span>
-                            ) : null}
                           </button>
                         </li>
                       );
@@ -142,23 +149,31 @@ export function WorkspaceNavTree({
                             ? latestMessage.attachment_name || "File"
                             : "");
                       const isConvActive = activeConversationId === group.id;
+                      const groupUnreadLabel = unreadCount > 0 ? `, ${formatUnreadCount(unreadCount)} unread` : "";
                       return (
                         <li key={group.id}>
                           <button
                             type="button"
                             className={`workspace-nav-tree__nested-btn${isConvActive ? " workspace-nav-tree__nested-btn--active" : ""}`}
                             onClick={() => onOpenGroup(group)}
+                            aria-label={`Open ${group.title || "group chat"}${groupUnreadLabel}`}
                           >
-                            <span className="workspace-nav-tree__group-avatar" aria-hidden>
-                              {(group.title || "G").slice(0, 1).toUpperCase()}
+                            <span className="workspace-nav-tree__avatar-wrap workspace-nav-tree__avatar-wrap--square">
+                              <span className="workspace-nav-tree__group-avatar" aria-hidden>
+                                {(group.title || "G").slice(0, 1).toUpperCase()}
+                              </span>
                             </span>
                             <span className="workspace-nav-tree__nested-text">
-                              <span className="workspace-nav-tree__nested-name">{group.title || "Untitled group"}</span>
+                              <span className="workspace-nav-tree__nested-name-row">
+                                <span className="workspace-nav-tree__nested-name">{group.title || "Untitled group"}</span>
+                                {unreadCount > 0 ? (
+                                  <span className="workspace-nav-tree__name-unread" title={`${unreadCount} unread`} aria-hidden>
+                                    {formatUnreadCount(unreadCount)}
+                                  </span>
+                                ) : null}
+                              </span>
                               <span className="workspace-nav-tree__nested-preview">{preview || "No messages yet"}</span>
                             </span>
-                            {unreadCount > 0 ? (
-                              <span className="workspace-nav-tree__mini-badge">{formatUnreadCount(unreadCount)}</span>
-                            ) : null}
                           </button>
                         </li>
                       );

@@ -46,3 +46,19 @@ export function getWeekDaysSunday(weekOffset: number): Date[] {
     return d;
   });
 }
+
+/**
+ * Monday–Friday of the same calendar week as `getWeekDaysSunday(weekOffset)[0]` (Sun),
+ * i.e. the work week that overlaps the anchor date `today + weekOffset * 7`.
+ */
+export function getWeekDaysMonFri(weekOffset: number): Date[] {
+  const sundayWeek = getWeekDaysSunday(weekOffset);
+  const sunday = sundayWeek[0]!;
+  const monday = new Date(sunday);
+  monday.setDate(sunday.getDate() + 1);
+  return Array.from({ length: 5 }, (_, i) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    return d;
+  });
+}
