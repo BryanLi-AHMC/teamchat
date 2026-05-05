@@ -501,6 +501,7 @@ function MainLayout() {
   const stickToBottomRef = useRef(true);
   const pendingScrollRestoreRef = useRef<{ prevHeight: number; prevScrollTop: number } | null>(null);
   const loadingOlderGuardRef = useRef(false);
+  const sendInProgressRef = useRef(false);
 
   activeConversationIdRef.current = activeConversation?.id ?? null;
   dmConversationByUserIdRef.current = dmConversationByUserId;
@@ -1968,8 +1969,12 @@ function MainLayout() {
     if (!activeConversation?.id || !composerText.trim()) {
       return;
     }
+    if (sendInProgressRef.current) {
+      return;
+    }
 
     try {
+      sendInProgressRef.current = true;
       setIsSending(true);
       setChatError("");
       if (typingChannelRef.current && activeConversation?.id && currentProfile?.id) {
@@ -2001,6 +2006,7 @@ function MainLayout() {
       console.error("[handleSend failed]", error);
       setChatError(error instanceof Error ? error.message : "Unable to send message.");
     } finally {
+      sendInProgressRef.current = false;
       setIsSending(false);
     }
   };
@@ -2065,10 +2071,19 @@ function MainLayout() {
   };
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      void handleSend();
+    if (event.key !== "Enter" || event.shiftKey) {
+      return;
     }
+    // Do not send while IME (e.g. Chinese) is composing — Enter often confirms the composition.
+    const native = event.nativeEvent;
+    if (native.isComposing || native.keyCode === 229) {
+      return;
+    }
+    if (event.repeat) {
+      return;
+    }
+    event.preventDefault();
+    void handleSend();
   };
 
   const handleComposerChange = (value: string) => {
