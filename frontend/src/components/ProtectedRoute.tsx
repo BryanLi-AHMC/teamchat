@@ -13,6 +13,11 @@ function ProtectedRoute({ children }: PropsWithChildren) {
   const hasSignedOutAfterFailure = useRef(false);
   const isCheckingProfile = useRef(false);
   const isMounted = useRef(true);
+  /** Mirrors latest session / auth for async auth callbacks (tab refocus refresh must not flash loading). */
+  const sessionRef = useRef<Session | null>(null);
+  const isAuthorizedRef = useRef(false);
+  sessionRef.current = session;
+  isAuthorizedRef.current = isAuthorized;
 
   useEffect(() => {
     isMounted.current = true;
@@ -58,10 +63,13 @@ function ProtectedRoute({ children }: PropsWithChildren) {
       }
 
       isCheckingProfile.current = true;
-      // Supabase refreshes the JWT when the tab regains focus (`TOKEN_REFRESHED`). Showing the
-      // full-route loading screen unmounts the app and feels like a page reload — skip that for
-      // silent token rotation while already navigating the portal.
-      if (isMounted.current && !options?.background) {
+      // Tab refocus often triggers token refresh / auth events. Do not show the full-route loader
+      // when we are already in the portal for the same user — that unmounts the tree and feels like a reload.
+      const sameUserAlreadyIn =
+        isAuthorizedRef.current &&
+        Boolean(candidateSession?.user?.id) &&
+        candidateSession.user.id === sessionRef.current?.user?.id;
+      if (isMounted.current && !options?.background && !sameUserAlreadyIn) {
         setLoading(true);
       }
 

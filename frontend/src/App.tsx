@@ -12,7 +12,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { getCurrentInternalProfile, type InternalProfile } from "./lib/authProfile";
 import {
@@ -53,6 +53,7 @@ import {
   SOCKET_READY_WAIT_MS,
   waitForSocketConnection,
 } from "./lib/socket";
+import { playIncomingMessageNotificationSound } from "./lib/notificationSound";
 import { supabase } from "./lib/supabase";
 import Login from "./pages/Login";
 import TeamHubHome from "./pages/TeamHubHome";
@@ -420,9 +421,15 @@ function safeFileName(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
+function mainLayoutConversationIdFromPath(pathname: string) {
+  const m = pathname.match(/^\/chat\/([^/?#]+)/);
+  return m?.[1];
+}
+
 function MainLayout() {
   const navigate = useNavigate();
-  const { conversationId: conversationIdFromRoute } = useParams<{ conversationId?: string }>();
+  const { pathname } = useLocation();
+  const conversationIdFromRoute = mainLayoutConversationIdFromPath(pathname);
   const EMOJIS = ["😀", "😄", "😂", "👍", "🙏", "❤️", "🎉", "✅", "👀", "😭", "😅", "🔥", "💪", "👏", "🚀"];
   const [currentProfile, setCurrentProfile] = useState<InternalProfile | null>(null);
   const [activeUsers, setActiveUsers] = useState<InternalProfile[]>([]);
@@ -1099,6 +1106,12 @@ function MainLayout() {
     (message: ChatMessage) => {
       const activeConversationId = activeConversationIdRef.current;
       const isOpenConversation = message.conversation_id === activeConversationId;
+      const fromSomeoneElse = Boolean(currentProfile && message.sender_id !== currentProfile.id);
+      const tabInBackground = typeof document !== "undefined" && document.visibilityState === "hidden";
+      if (fromSomeoneElse && (!isOpenConversation || tabInBackground)) {
+        playIncomingMessageNotificationSound();
+      }
+
       setLatestMessageByConversationId((existing) => ({
         ...existing,
         [message.conversation_id]: message,
@@ -2124,6 +2137,12 @@ function MainLayout() {
   }, [showEmojiMenu]);
 
   useEffect(() => {
+    if (pathname !== "/" && !pathname.startsWith("/chat/")) {
+      navigate("/", { replace: true });
+    }
+  }, [pathname, navigate]);
+
+  useEffect(() => {
     if (!activeConversation?.id) {
       if (conversationIdFromRoute && restoredConversationId !== conversationIdFromRoute) {
         navigate("/", { replace: true });
@@ -2761,22 +2780,6 @@ function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route
-          path="/"
-          element={
-            <ProtectedRoute>
-              <MainLayout />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/chat/:conversationId"
-          element={
-            <ProtectedRoute>
-              <MainLayout />
-            </ProtectedRoute>
-          }
-        />
-        <Route
           path="/teamhub"
           element={
             <ProtectedRoute>
@@ -2784,7 +2787,18 @@ function App() {
             </ProtectedRoute>
           }
         />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        {/**
+         * Single MainLayout instance for `/` and `/chat/:id` so switching chats does not remount
+         * the shell (avoids "Loading TeamChat..." on every navigation / tab-return remount).
+         */}
+        <Route
+          path="/*"
+          element={
+            <ProtectedRoute>
+              <MainLayout />
+            </ProtectedRoute>
+          }
+        />
       </Routes>
     </BrowserRouter>
   );
